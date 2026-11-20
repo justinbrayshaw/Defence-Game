@@ -19,9 +19,17 @@ var _is_desert: bool = false
 var _is_tundra: bool = false
 var _is_mountain: bool = false
 var _is_christmas: bool = false
+var _is_town: bool = false
+var _is_countryside: bool = false
+var _is_forest: bool = false
+var _is_outback: bool = false
 var _trees: Array[Dictionary] = []
+var _oaks: Array[Dictionary] = []
 var _palms: Array[Dictionary] = []
 var _shrubs: Array[Dictionary] = []
+var _buildings: Array[Dictionary] = []
+var _hay_bales: Array[Dictionary] = []
+var _logs: Array[Dictionary] = []
 var _rocks: Array[Dictionary] = []
 var _shore_stones: Array[Dictionary] = []
 var _ice_floes: Array[Dictionary] = []
@@ -42,6 +50,10 @@ func setup(data: Dictionary) -> void:
 	_is_tundra = (biome == "tundra")
 	_is_mountain = (biome == "mountain")
 	_is_christmas = (biome == "christmas")
+	_is_town = (biome == "town")
+	_is_countryside = (biome == "countryside")
+	_is_forest = (biome == "forest")
+	_is_outback = (biome == "outback")
 	_bake_map_mask()
 	_setup_shader_background()
 	_generate_props()
@@ -147,8 +159,12 @@ func _near_any_bridge(pos: Vector2, pad_y: float) -> bool:
 
 func _generate_props() -> void:
 	_trees.clear()
+	_oaks.clear()
 	_palms.clear()
 	_shrubs.clear()
+	_buildings.clear()
+	_hay_bales.clear()
+	_logs.clear()
 	_rocks.clear()
 	_shore_stones.clear()
 	_ice_floes.clear()
@@ -170,8 +186,9 @@ func _generate_props() -> void:
 	var base_pos: Vector2 = map_data["base_pos"]
 	var ref_bridge: Vector2 = map_data["bridge_pos"]
 
-	# Riverbank boulders & half-submerged shoreline stones
-	for _i in range(110):
+	# Riverbank boulders & half-submerged shoreline stones (skipped for engineered concrete town canal!)
+	var shore_attempts: int = 0 if _is_town else 110
+	for _i in range(shore_attempts):
 		var ry: float = rng.randf_range(16.0, h - 16.0)
 		var rx_center: float = ref_bridge.x + rng.randf_range(-42.0, 42.0)
 		var side: float = -1.0 if rng.randf() < 0.5 else 1.0
@@ -352,7 +369,7 @@ func _generate_props() -> void:
 			})
 
 	# Clustered 3D boulders
-	var rock_attempts: int = 108 if _is_mountain else (86 if _is_desert else (76 if _is_tundra else 62))
+	var rock_attempts: int = 12 if _is_town else (24 if _is_countryside else (108 if (_is_mountain or _is_outback) else (86 if _is_desert else (76 if _is_tundra else 62))))
 	for _i in range(rock_attempts):
 		var pos := Vector2(rng.randf_range(35.0, w - 35.0), rng.randf_range(35.0, h - 35.0))
 		if pos.distance_to(base_pos) < 135.0:
@@ -389,6 +406,187 @@ func _generate_props() -> void:
 	for bnk in map_data.get("bunkers", []):
 		_bunkers.append(bnk)
 
+	_generate_new_biome_props(rng, w, h, roads, river, pads, base_pos)
+
+func _generate_new_biome_props(rng: RandomNumberGenerator, w: float, h: float, roads: Array, river: PackedVector2Array, pads: Array, base_pos: Vector2) -> void:
+	if _is_town:
+		# Replace conifers in town with crisp 3D urban buildings & a few manicured park oaks!
+		_trees.clear()
+		var roof_palette: Array[Color] = [
+			Color(0.54, 0.25, 0.20), # Terracotta brick house
+			Color(0.30, 0.33, 0.38), # Slate pitched roof
+			Color(0.38, 0.39, 0.37), # Concrete flat commercial
+			Color(0.46, 0.34, 0.25), # Warm brown town block
+			Color(0.28, 0.30, 0.33), # Industrial roof
+		]
+		for _i in range(145):
+			var bw: float = rng.randf_range(34.0, 68.0)
+			var bh: float = rng.randf_range(26.0, 52.0)
+			var pos := Vector2(rng.randf_range(50.0, w - 50.0), rng.randf_range(45.0, h - 45.0))
+			var clearance: float = maxf(bw, bh) * 0.5 + 14.0
+			if pos.distance_to(base_pos) < 125.0 + clearance * 0.4:
+				continue
+			if MapData.distance_to_polylines(pos, roads) < MapData.ROAD_WIDTH * 0.65 + clearance:
+				continue
+			if MapData.distance_to_polyline(pos, river) < MapData.RIVER_WIDTH * 0.62 + clearance:
+				continue
+			var blocked := false
+			for pad in pads:
+				if pos.distance_to(pad) < 34.0 + clearance:
+					blocked = true
+					break
+			if blocked:
+				continue
+			for existing in _buildings:
+				var ep: Vector2 = existing["pos"]
+				var er: float = maxf(float(existing["w"]), float(existing["h"])) * 0.55
+				if pos.distance_to(ep) < clearance + er - 4.0:
+					blocked = true
+					break
+			if blocked:
+				continue
+			_buildings.append({
+				"pos": pos,
+				"w": bw,
+				"h": bh,
+				"style": rng.randi_range(0, 2), # 0=pitched, 1=flat HVAC, 2=courtyard/skylight
+				"color": roof_palette[rng.randi() % roof_palette.size()],
+			})
+		# Manicured park oak trees in remaining urban clearings
+		for _i in range(65):
+			var pos := Vector2(rng.randf_range(30.0, w - 30.0), rng.randf_range(30.0, h - 30.0))
+			if _prop_blocked(pos, 48.0, roads, river, pads, base_pos):
+				continue
+			var near_b := false
+			for b in _buildings:
+				if pos.distance_to(b["pos"]) < maxf(float(b["w"]), float(b["h"])) * 0.6 + 18.0:
+					near_b = true
+					break
+			if near_b:
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(12.0, 18.0), rng, "park"))
+
+	elif _is_countryside:
+		# Replace sharp conifers with lush rounded English oaks, charming Cotswold stone cottages & golden hay bales!
+		_trees.clear()
+		for _i in range(34):
+			var bw: float = rng.randf_range(34.0, 50.0)
+			var bh: float = rng.randf_range(24.0, 36.0)
+			var pos := Vector2(rng.randf_range(55.0, w - 55.0), rng.randf_range(50.0, h - 50.0))
+			var cl: float = maxf(bw, bh) * 0.5 + 18.0
+			if _prop_blocked(pos, cl + 22.0, roads, river, pads, base_pos):
+				continue
+			var overlap := false
+			for b in _buildings:
+				if pos.distance_to(b["pos"]) < 85.0:
+					overlap = true
+					break
+			if overlap:
+				continue
+			var c_col := Color(0.68, 0.56, 0.34) if rng.randf() < 0.45 else Color(0.58, 0.30, 0.22)
+			_buildings.append({"pos": pos, "w": bw, "h": bh, "style": 3, "color": c_col})
+
+		# Golden hay bales in little farm clusters
+		for _i in range(52):
+			var pos := Vector2(rng.randf_range(40.0, w - 40.0), rng.randf_range(40.0, h - 40.0))
+			if _prop_blocked(pos, 52.0, roads, river, pads, base_pos):
+				continue
+			var near_b := false
+			for b in _buildings:
+				if pos.distance_to(b["pos"]) < 52.0:
+					near_b = true
+					break
+			if near_b:
+				continue
+			_hay_bales.append({"pos": pos, "r": rng.randf_range(5.5, 7.5)})
+
+		# Lush broad-leaf English oak & beech trees
+		for _i in range(135):
+			var pos := Vector2(rng.randf_range(28.0, w - 28.0), rng.randf_range(28.0, h - 28.0))
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			var near_b := false
+			for b in _buildings:
+				if pos.distance_to(b["pos"]) < 46.0:
+					near_b = true
+					break
+			if near_b:
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(14.0, 24.0), rng, "oak"))
+
+	elif _is_forest:
+		# Extra lush ancient woodland oaks + mossy fallen timber logs alongside the dense pines!
+		for _i in range(155):
+			var pos := Vector2(rng.randf_range(24.0, w - 24.0), rng.randf_range(24.0, h - 24.0))
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(14.0, 23.0), rng, "woodland"))
+		for _i in range(38):
+			var pos := Vector2(rng.randf_range(40.0, w - 40.0), rng.randf_range(40.0, h - 40.0))
+			if _prop_blocked(pos, 54.0, roads, river, pads, base_pos):
+				continue
+			_logs.append({"pos": pos, "ang": rng.randf_range(0.0, TAU), "len": rng.randf_range(22.0, 38.0)})
+
+	elif _is_outback:
+		# Replace alpine pines with pale-trunked Eucalyptus Ghost Gums, golden Spinifex tufts & Outback tin sheds!
+		_trees.clear()
+		for _i in range(14):
+			var pos := Vector2(rng.randf_range(60.0, w - 60.0), rng.randf_range(60.0, h - 60.0))
+			if _prop_blocked(pos, 72.0, roads, river, pads, base_pos):
+				continue
+			_buildings.append({"pos": pos, "w": rng.randf_range(36.0, 52.0), "h": rng.randf_range(22.0, 32.0), "style": 4, "color": Color(0.56, 0.44, 0.36)})
+
+		# Silvery-sage Eucalyptus Ghost Gum trees (heavier along Billabong creek + scattered across plains)
+		for _i in range(115):
+			var pos := Vector2(rng.randf_range(28.0, w - 28.0), rng.randf_range(28.0, h - 28.0))
+			if _prop_blocked(pos, 52.0, roads, river, pads, base_pos):
+				continue
+			var d_riv: float = MapData.distance_to_polyline(pos, river)
+			if d_riv > 140.0 and rng.randf() < 0.65:
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(13.0, 22.0), rng, "eucalyptus"))
+
+		# Golden spiky Outback Spinifex tussocks scattered across the red dirt!
+		for _i in range(160):
+			var pos := Vector2(rng.randf_range(24.0, w - 24.0), rng.randf_range(24.0, h - 24.0))
+			if _prop_blocked(pos, 48.0, roads, river, pads, base_pos):
+				continue
+			var r: float = rng.randf_range(5.5, 11.0)
+			_shrubs.append({
+				"pos": pos,
+				"poly": _build_foliage_poly(r, 8, rng, 0.44),
+				"shade": rng.randf_range(0.84, 1.16),
+			})
+
+func _prop_blocked(pos: Vector2, pad_clear: float, roads: Array, river: PackedVector2Array, pads: Array, base_pos: Vector2) -> bool:
+	if pos.distance_to(base_pos) < 128.0:
+		return true
+	if MapData.distance_to_polylines(pos, roads) < MapData.ROAD_WIDTH * 0.86:
+		return true
+	if MapData.distance_to_polyline(pos, river) < MapData.RIVER_WIDTH * 0.84:
+		return true
+	for pad in pads:
+		if pos.distance_to(pad) < pad_clear:
+			return true
+	return false
+
+func _make_oak(pos: Vector2, radius: float, rng: RandomNumberGenerator, kind: String) -> Dictionary:
+	var puffs: Array[Dictionary] = []
+	for _p in range(5):
+		var a: float = rng.randf_range(0.0, TAU)
+		var d: float = radius * rng.randf_range(0.24, 0.48)
+		puffs.append({
+			"off": Vector2(cos(a) * d, sin(a) * d),
+			"r": radius * rng.randf_range(0.42, 0.62),
+		})
+	return {
+		"pos": pos,
+		"radius": radius,
+		"shade": rng.randf_range(0.84, 1.16),
+		"kind": kind,
+		"puffs": puffs,
+	}
+
 func _process(delta: float) -> void:
 	_time += delta
 	if (_is_tundra or _is_christmas) and not map_data.is_empty():
@@ -410,7 +608,9 @@ func _draw() -> void:
 	_draw_air_corridor_hint()
 	_draw_bunkers()
 	_draw_sandbags()
+	_draw_logs()
 	_draw_rocks()
+	_draw_hay_bales()
 	_draw_pads()
 	if _is_christmas:
 		_draw_santa_workshop()
@@ -418,11 +618,15 @@ func _draw() -> void:
 	else:
 		_draw_hq_fortress()
 	_draw_spawn_markers()
-	if _is_desert:
+	_draw_buildings()
+	if _is_desert or _is_outback:
 		_draw_shrubs()
+	if _is_desert:
 		_draw_palms()
-	else:
+	if not _trees.is_empty():
 		_draw_trees()
+	if not _oaks.is_empty():
+		_draw_oaks()
 	if _is_tundra or _is_christmas:
 		_draw_snowfall()
 
@@ -623,6 +827,11 @@ func _draw_rocks() -> void:
 			c_dark = Color(0.35 * s, 0.22 * s, 0.14 * s)
 			c_mid = Color(0.50 * s, 0.33 * s, 0.21 * s)
 			c_lit = Color(0.68 * s, 0.49 * s, 0.32 * s)
+		elif _is_outback:
+			# Deep iron-oxide Uluru crimson sandstone outcrops!
+			c_dark = Color(0.36 * s, 0.13 * s, 0.08 * s)
+			c_mid = Color(0.56 * s, 0.21 * s, 0.12 * s)
+			c_lit = Color(0.74 * s, 0.34 * s, 0.18 * s)
 		elif _is_tundra:
 			c_dark = Color(0.18 * s, 0.22 * s, 0.27 * s)
 			c_mid = Color(0.30 * s, 0.35 * s, 0.41 * s)
@@ -880,8 +1089,13 @@ func _draw_shrubs() -> void:
 		var poly: PackedVector2Array = sh["poly"]
 		var s: float = float(sh["shade"])
 		draw_colored_polygon(_offset_poly(poly, pos + Vector2(3.5, 4.0)), Color(0.0, 0.0, 0.0, 0.28))
-		draw_colored_polygon(_offset_poly(poly, pos), Color(0.26 * s, 0.28 * s, 0.14 * s))
-		draw_colored_polygon(_scale_offset_poly(poly, 0.65, pos + Vector2(-1.4, -1.4)), Color(0.36 * s, 0.38 * s, 0.18 * s))
+		if _is_outback:
+			# Golden spiky Australian Outback Spinifex tussocks!
+			draw_colored_polygon(_offset_poly(poly, pos), Color(0.46 * s, 0.38 * s, 0.15 * s))
+			draw_colored_polygon(_scale_offset_poly(poly, 0.65, pos + Vector2(-1.4, -1.4)), Color(0.66 * s, 0.56 * s, 0.22 * s))
+		else:
+			draw_colored_polygon(_offset_poly(poly, pos), Color(0.26 * s, 0.28 * s, 0.14 * s))
+			draw_colored_polygon(_scale_offset_poly(poly, 0.65, pos + Vector2(-1.4, -1.4)), Color(0.36 * s, 0.38 * s, 0.18 * s))
 
 func _draw_palms() -> void:
 	for palm in _palms:
@@ -1068,3 +1282,126 @@ func _draw_christmas_props() -> void:
 		draw_circle(p + Vector2(-1.2, -1.2), 6.2, Color(0.12, 0.12, 0.15))
 		draw_arc(p + Vector2(-1.2, -1.2), 4.4, 0.0, TAU, 16, Color(0.90, 0.18, 0.20), 1.6, true)
 		draw_circle(p + Vector2(-1.8, -1.8), 3.4, Color(0.22, 0.22, 0.26))
+
+func _draw_buildings() -> void:
+	for b in _buildings:
+		var pos: Vector2 = b["pos"]
+		var bw: float = float(b["w"])
+		var bh: float = float(b["h"])
+		var style: int = int(b["style"])
+		var col: Color = b["color"]
+		var half := Vector2(bw * 0.5, bh * 0.5)
+		var rect := Rect2(pos - half, Vector2(bw, bh))
+
+		# Crisp 3D directional building shadow cast SE
+		var sh_off := Vector2(8.0, 9.5) if style != 3 else Vector2(6.5, 7.5)
+		draw_rect(Rect2(rect.position + sh_off, rect.size), Color(0.0, 0.0, 0.0, 0.42))
+
+		if style == 3:
+			# Pleasant English Cotswold Stone Cottage (honey limestone walls + pitched terracotta/thatched roof + chimney!)
+			draw_rect(Rect2(rect.position - Vector2(2, 2), rect.size + Vector2(4, 4)), Color(0.68, 0.62, 0.48))
+			draw_rect(Rect2(rect.position, Vector2(bw, bh * 0.5)), col.lightened(0.16))
+			draw_rect(Rect2(rect.position + Vector2(0, bh * 0.5), Vector2(bw, bh * 0.5)), col.darkened(0.14))
+			draw_line(pos + Vector2(-bw * 0.48, 0), pos + Vector2(bw * 0.48, 0), col.lightened(0.32), 2.2)
+			# Cozy brick chimney on roof
+			draw_rect(Rect2(pos + Vector2(bw * 0.22, -bh * 0.28), Vector2(6, 6)), Color(0.46, 0.22, 0.16))
+			draw_rect(Rect2(pos + Vector2(bw * 0.22 + 1.5, -bh * 0.28 + 1.5), Vector2(3, 3)), Color(0.14, 0.12, 0.12))
+		elif style == 4:
+			# Corrugated-iron Australian Outback Shed + cylindrical water tank!
+			draw_rect(rect, col)
+			draw_rect(Rect2(rect.position, Vector2(bw, bh * 0.5)), col.lightened(0.16))
+			draw_line(pos + Vector2(-bw * 0.5, 0), pos + Vector2(bw * 0.5, 0), Color(0.76, 0.68, 0.58), 1.8)
+			for rx in range(int(-bw * 0.4), int(bw * 0.45), 6):
+				draw_line(pos + Vector2(float(rx), -bh * 0.48), pos + Vector2(float(rx), bh * 0.48), Color(0.25, 0.18, 0.14, 0.32), 1.0)
+			# Corrugated galvanized rainwater tank beside shed
+			var tk := pos + Vector2(bw * 0.5 + 8.0, 0.0)
+			draw_circle(tk + Vector2(2.5, 3.0), 7.0, Color(0.0, 0.0, 0.0, 0.34))
+			draw_circle(tk, 6.8, Color(0.56, 0.58, 0.56))
+			draw_circle(tk + Vector2(-1.4, -1.4), 4.6, Color(0.72, 0.74, 0.72))
+		elif style == 0:
+			# Town pitched-roof terrace / townhouse
+			draw_rect(Rect2(rect.position - Vector2(1.5, 1.5), rect.size + Vector2(3, 3)), Color(0.16, 0.17, 0.18))
+			draw_rect(Rect2(rect.position, Vector2(bw, bh * 0.5)), col.lightened(0.16))
+			draw_rect(Rect2(rect.position + Vector2(0, bh * 0.5), Vector2(bw, bh * 0.5)), col.darkened(0.16))
+			draw_line(pos + Vector2(-bw * 0.48, 0), pos + Vector2(bw * 0.48, 0), col.lightened(0.30), 2.0)
+			draw_rect(Rect2(pos + Vector2(-bw * 0.25, -bh * 0.24), Vector2(6, 6)), Color(0.32, 0.26, 0.24))
+		else:
+			# Town flat concrete roof commercial/industrial building with parapet & HVAC units!
+			draw_rect(rect, col.darkened(0.18))
+			draw_rect(Rect2(rect.position + Vector2(3, 3), rect.size - Vector2(6, 6)), col)
+			draw_line(rect.position, rect.position + Vector2(bw, 0), col.lightened(0.26), 1.6)
+			draw_line(rect.position, rect.position + Vector2(0, bh), col.lightened(0.22), 1.6)
+			# Rooftop HVAC box + skylight
+			var hvac := Rect2(pos + Vector2(-bw * 0.24, -bh * 0.22), Vector2(10, 9))
+			draw_rect(Rect2(hvac.position + Vector2(2, 2.5), hvac.size), Color(0.0, 0.0, 0.0, 0.34))
+			draw_rect(hvac, Color(0.54, 0.56, 0.55))
+			draw_circle(hvac.position + Vector2(5, 4.5), 3.0, Color(0.24, 0.26, 0.26))
+			if style == 2:
+				draw_rect(Rect2(pos + Vector2(4, -bh * 0.18), Vector2(bw * 0.26, bh * 0.36)), Color(0.28, 0.42, 0.50, 0.85))
+
+func _draw_oaks() -> void:
+	for o in _oaks:
+		var pos: Vector2 = o["pos"]
+		var r: float = float(o["radius"])
+		var s: float = float(o["shade"])
+		var kind: String = String(o["kind"])
+		var puffs: Array = o["puffs"]
+
+		var c_dark: Color
+		var c_mid: Color
+		var c_lit: Color
+		if kind == "eucalyptus":
+			# Silvery-sage Australian Eucalyptus Ghost Gum foliage!
+			c_dark = Color(0.18 * s, 0.27 * s, 0.20 * s)
+			c_mid = Color(0.28 * s, 0.39 * s, 0.29 * s)
+			c_lit = Color(0.42 * s, 0.53 * s, 0.41 * s)
+		elif kind == "oak":
+			# Vibrant sunlit English countryside oak & beech
+			c_dark = Color(0.11 * s, 0.24 * s, 0.09 * s)
+			c_mid = Color(0.18 * s, 0.36 * s, 0.13 * s)
+			c_lit = Color(0.30 * s, 0.48 * s, 0.18 * s)
+		elif kind == "woodland":
+			# Deep ancient Whisperwood forest oak (rich emerald + hints of autumn bronze!)
+			c_dark = Color(0.08 * s, 0.19 * s, 0.08 * s)
+			c_mid = Color(0.14 * s, 0.29 * s, 0.11 * s)
+			c_lit = Color(0.26 * s, 0.38 * s, 0.14 * s)
+		else:
+			# Urban park broad-leaf tree
+			c_dark = Color(0.12 * s, 0.24 * s, 0.11 * s)
+			c_mid = Color(0.19 * s, 0.34 * s, 0.15 * s)
+			c_lit = Color(0.28 * s, 0.44 * s, 0.20 * s)
+
+		# Soft multi-layer broad-leaf shadow
+		draw_circle(pos + Vector2(8.0, 9.0), r * 0.96, Color(0.0, 0.0, 0.0, 0.24))
+		draw_circle(pos + Vector2(4.5, 5.0), r * 0.88, Color(0.0, 0.0, 0.0, 0.22))
+		# Pale ghost-gum trunk peeking out on Eucalyptus trees!
+		if kind == "eucalyptus":
+			draw_line(pos, pos + Vector2(6.0, 7.0), Color(0.82, 0.80, 0.74, 0.85), 3.0, true)
+
+		# Fluffy layered broad-leaf canopy puffs
+		draw_circle(pos, r * 0.86, c_dark)
+		for pf in puffs:
+			var off: Vector2 = pf["off"]
+			var pr: float = float(pf["r"])
+			draw_circle(pos + off, pr, c_mid)
+			draw_circle(pos + off + Vector2(-1.8, -1.8), pr * 0.64, c_lit)
+		draw_circle(pos + Vector2(-3.0, -3.0), r * 0.44, c_lit.lightened(0.08))
+
+func _draw_hay_bales() -> void:
+	for hb in _hay_bales:
+		var p: Vector2 = hb["pos"]
+		var r: float = float(hb["r"])
+		draw_circle(p + Vector2(2.6, 3.0), r, Color(0.0, 0.0, 0.0, 0.32))
+		draw_circle(p, r, Color(0.72, 0.58, 0.22))
+		draw_circle(p + Vector2(-1.2, -1.2), r * 0.68, Color(0.86, 0.72, 0.30))
+		draw_arc(p, r * 0.55, 0.0, TAU, 14, Color(0.56, 0.42, 0.14, 0.65), 1.1, true)
+
+func _draw_logs() -> void:
+	for lg in _logs:
+		var p: Vector2 = lg["pos"]
+		var d := Vector2.from_angle(float(lg["ang"])) * (float(lg["len"]) * 0.5)
+		draw_line(p - d + Vector2(2.5, 3.0), p + d + Vector2(2.5, 3.0), Color(0.0, 0.0, 0.0, 0.36), 6.2, true)
+		draw_line(p - d, p + d, Color(0.24, 0.16, 0.10), 6.0, true)
+		draw_line(p - d + Vector2(-0.8, -0.8), p + d + Vector2(-0.8, -0.8), Color(0.36, 0.26, 0.16), 2.4, true)
+		# Green woodland moss clinging to fallen timber log
+		draw_circle(p + d * 0.2, 3.2, Color(0.18, 0.34, 0.14, 0.85))

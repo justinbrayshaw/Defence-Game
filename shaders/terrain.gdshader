@@ -4,7 +4,7 @@ uniform sampler2D map_mask : filter_linear, repeat_disable;
 uniform vec2 map_size = vec2(1600.0, 960.0);
 uniform vec2 bridge_pos = vec2(1038.0, 175.0);
 uniform vec2 bridge_pos_2 = vec2(-9999.0, -9999.0);
-uniform int biome_type = 0; // 0 = Alpine, 1 = Desert, 2 = Tundra, 3 = Mountain, 4 = Christmas North Pole
+uniform int biome_type = 0; // 0=Alpine, 1=Desert, 2=Tundra, 3=Mountain, 4=Christmas, 5=Town, 6=Countryside, 7=Forest, 8=Outback
 
 float hash(vec2 p) {
 	p = fract(p * vec2(127.1, 311.7));
@@ -150,6 +150,16 @@ float scene_height(vec2 wp, vec4 m) {
 		float pad_clear = smoothstep(26.0, 56.0, d_pad);
 		float massif = valley_rise * mix(0.28, 1.0, pad_clear);
 		h = 0.34 + macro * 0.24 + micro_bump * 1.15 + massif * (0.38 + peaks * 0.98);
+	} else if (biome_type == 5) {
+		// Flat engineered urban plateau with crisp canal embankment
+		h = 0.62 + macro * 0.08 + micro_bump * 0.30;
+	} else if (biome_type == 6) {
+		// Soft rolling English countryside hills
+		h = 0.48 + macro * 0.34 + micro_bump * 0.55;
+	} else if (biome_type == 8) {
+		// Flat sun-baked Outback plains with abrupt Uluru-style red sandstone mesas!
+		float mesa_raw = smoothstep(0.60, 0.74, macro) * smoothstep(55.0, 115.0, d_road) * smoothstep(60.0, 110.0, d_river);
+		h = 0.46 + macro * 0.18 + micro_bump * 0.70 + mesa_raw * 0.62;
 	}
 
 	float pad_flat = 1.0 - smoothstep(22.0, 52.0, d_pad);
@@ -163,7 +173,7 @@ float scene_height(vec2 wp, vec4 m) {
 	float road_elev = (biome_type == 3) ? 0.42 : 0.64;
 	h = mix(h, road_elev + road_crown, road_zone * 0.88) - ditch;
 
-	float bank_warp = (fbm(wp * 0.026) - 0.5) * 18.0;
+	float bank_warp = (biome_type == 5) ? 0.0 : ((fbm(wp * 0.026) - 0.5) * 18.0);
 	float r_eff = d_river + bank_warp;
 	float gorge = 1.0 - smoothstep(34.0, 102.0, r_eff);
 	float cliff_step = (1.0 - smoothstep(42.0, 62.0, r_eff)) * 0.24;
@@ -220,6 +230,21 @@ void fragment() {
 		// Cozy starlit North Pole twilight with warm golden workshop bounce
 		shadow_tint = vec3(0.34, 0.46, 0.66);
 		sun_tint = vec3(1.08, 1.12, 1.20);
+	} else if (biome_type == 5) {
+		shadow_tint = vec3(0.46, 0.50, 0.56);
+		sun_tint = vec3(1.18, 1.16, 1.10);
+	} else if (biome_type == 6) {
+		// Pleasant golden-afternoon English countryside sun
+		shadow_tint = vec3(0.48, 0.55, 0.56);
+		sun_tint = vec3(1.26, 1.22, 1.02);
+	} else if (biome_type == 7) {
+		// Rich cool-dappled deep woodland shade
+		shadow_tint = vec3(0.34, 0.42, 0.40);
+		sun_tint = vec3(1.16, 1.12, 0.96);
+	} else if (biome_type == 8) {
+		// Blistering warm Australian Outback sun + terracotta bounce
+		shadow_tint = vec3(0.48, 0.38, 0.42);
+		sun_tint = vec3(1.30, 1.14, 0.92);
 	}
 	vec3 sun_lit = mix(shadow_tint, sun_tint, smoothstep(0.12, 0.92, ndotl));
 
@@ -351,6 +376,106 @@ void fragment() {
 		// Festive cobblestone clearing under wreath turret pads
 		float pad_clear = 1.0 - smoothstep(23.0, 38.0, d_pad + (turf_var - 0.5) * 6.0);
 		ground = mix(ground, vec3(0.44, 0.34, 0.30) * mix(0.84, 1.14, cobbles), pad_clear * 0.58);
+	} else if (biome_type == 5) {
+		// TOWN OF IRONBOURNE: Concrete city blocks, tiled plazas, manicured park lawns, canal quay!
+		vec3 concrete_a = vec3(0.35, 0.36, 0.35);
+		vec3 concrete_b = vec3(0.45, 0.45, 0.43);
+		vec3 park_grass = vec3(0.20, 0.30, 0.16);
+		vec3 plaza_tile = vec3(0.41, 0.39, 0.35);
+
+		// Urban paving slab grid lines
+		vec2 tile_f = abs(fract(wp / 32.0) - 0.5);
+		float seam = 1.0 - smoothstep(0.45, 0.495, max(tile_f.x, tile_f.y));
+		ground = mix(concrete_a, concrete_b, turf_var) * mix(0.84, 1.04, seam);
+		ground = mix(ground, plaza_tile, smoothstep(0.54, 0.72, moisture) * 0.55);
+
+		// Manicured city park lawn patches in residential blocks
+		float park_mask = smoothstep(0.56, 0.70, fbm(wp * 0.0065 + vec2(3.1, 7.2))) * smoothstep(46.0, 62.0, d_road) * smoothstep(52.0, 68.0, d_river);
+		ground = mix(ground, park_grass * mix(0.88, 1.12, grain), park_mask * 0.92);
+		ground *= mix(0.92, 1.08, grain);
+
+		// Concrete canal quay stone wall border
+		float quay = (1.0 - smoothstep(40.0, 56.0, d_river)) * smoothstep(38.0, 42.0, d_river);
+		ground = mix(ground, vec3(0.48, 0.48, 0.46), quay * 0.9);
+	} else if (biome_type == 6) {
+		// PLEASANT ENGLISH COUNTRYSIDE: Patchwork emerald pastures, golden plowed wheat fields & hedgerows!
+		vec2 field_uv = wp / 210.0 + (vec2(fbm(wp * 0.004), fbm(wp * 0.004 + vec2(7.3, 4.1))) - 0.5) * 0.45;
+		vec2 f_cell = floor(field_uv);
+		vec2 f_frac = fract(field_uv);
+		float field_id = hash(f_cell);
+
+		// Plowed tractor crop furrows rotated per field!
+		float furrow_ang = (field_id > 0.5) ? 0.0 : 1.5708;
+		float f_coord = wp.x * cos(furrow_ang) + wp.y * sin(furrow_ang);
+		float furrows = 0.5 + 0.5 * sin(f_coord * 0.48);
+
+		vec3 lush_pasture = vec3(0.20, 0.36, 0.14);
+		vec3 clover_meadow = vec3(0.28, 0.42, 0.17);
+		vec3 golden_wheat = vec3(0.58, 0.49, 0.20);
+		vec3 plowed_loam = vec3(0.36, 0.27, 0.16);
+
+		if (field_id < 0.34) {
+			ground = mix(lush_pasture, clover_meadow, turf_var);
+		} else if (field_id < 0.64) {
+			ground = mix(clover_meadow, lush_pasture, turf_var) * mix(0.92, 1.08, furrows);
+		} else if (field_id < 0.86) {
+			ground = mix(golden_wheat * 0.88, golden_wheat * 1.10, furrows);
+		} else {
+			ground = mix(plowed_loam * 0.86, plowed_loam * 1.12, furrows);
+		}
+		ground *= mix(0.88, 1.12, grain);
+
+		// Dark green English hedgerow / stone-wall field boundaries!
+		float edge_d = min(min(f_frac.x, 1.0 - f_frac.x), min(f_frac.y, 1.0 - f_frac.y));
+		float hedge = (1.0 - smoothstep(0.015, 0.048, edge_d)) * smoothstep(42.0, 56.0, d_road) * smoothstep(48.0, 62.0, d_river) * smoothstep(32.0, 46.0, d_pad);
+		ground = mix(ground, vec3(0.11, 0.20, 0.09) * mix(0.8, 1.15, cobbles), hedge * 0.85);
+
+		float pad_dirt = 1.0 - smoothstep(24.0, 40.0, d_pad + (turf_var - 0.5) * 8.0);
+		ground = mix(ground, vec3(0.38, 0.34, 0.26) * mix(0.88, 1.12, cobbles), pad_dirt * 0.62);
+	} else if (biome_type == 7) {
+		// WHISPERWOOD DEEP FOREST: Velvet forest moss, amber leaf litter, dark humus & dappled sunlight!
+		vec3 deep_moss = vec3(0.10, 0.19, 0.09);
+		vec3 fern_green = vec3(0.16, 0.27, 0.12);
+		vec3 leaf_litter = vec3(0.28, 0.21, 0.11);
+		vec3 dark_humus = vec3(0.14, 0.12, 0.08);
+
+		ground = mix(deep_moss, fern_green, smoothstep(0.24, 0.64, turf_var));
+		ground = mix(ground, leaf_litter, smoothstep(0.56, 0.82, moisture) * 0.72);
+		ground = mix(ground, dark_humus, smoothstep(0.18, 0.44, slope) * 0.70);
+		ground *= mix(0.80, 1.18, grain);
+
+		// Dappled golden sunlight beams piercing the forest canopy!
+		float dapple = smoothstep(0.56, 0.82, fbm(wp * 0.018 + vec2(4.2, -3.1)));
+		ground += vec3(0.12, 0.13, 0.05) * dapple;
+
+		float pad_dirt = 1.0 - smoothstep(24.0, 40.0, d_pad + (turf_var - 0.5) * 8.0);
+		ground = mix(ground, vec3(0.24, 0.19, 0.13) * mix(0.84, 1.14, cobbles), pad_dirt * 0.72);
+	} else if (biome_type == 8) {
+		// THE AUSTRALIAN OUTBACK: Iconic Uluru iron-oxide crimson red earth, claypans & red mesas!
+		vec3 red_earth = vec3(0.58, 0.23, 0.12);
+		vec3 bright_ochre = vec3(0.70, 0.33, 0.16);
+		vec3 claypan = vec3(0.64, 0.48, 0.34);
+		vec3 uluru_rock = vec3(0.48, 0.17, 0.10);
+		vec3 mesa_crest = vec3(0.62, 0.24, 0.13);
+
+		ground = mix(red_earth, bright_ochre, smoothstep(0.26, 0.68, turf_var));
+		// Sun-baked cracked claypan flats
+		float pan_mask = smoothstep(0.68, 0.86, moisture) * (1.0 - smoothstep(0.55, 0.72, h));
+		ground = mix(ground, claypan, pan_mask * 0.65);
+		ground *= mix(0.86, 1.14, grain);
+
+		// Stratified Uluru red sandstone mesas rising from the red plains
+		float rock_mask = smoothstep(0.12, 0.38, slope) + smoothstep(0.76, 0.94, h) * 0.72;
+		float band = 0.5 + 0.5 * sin(h * 30.0 + strata * 3.0);
+		vec3 mesa_col = mix(uluru_rock, mesa_crest, band) * mix(0.76, 1.18, smoothstep(0.18, 0.62, cobbles));
+		ground = mix(ground, mesa_col, clamp(rock_mask, 0.0, 1.0));
+
+		// Dusty pale-olive eucalyptus river gum verge near billabong creek
+		float creek_verge = (1.0 - smoothstep(42.0, 78.0, d_river + (turf_var - 0.5) * 18.0)) * smoothstep(38.0, 48.0, d_river);
+		ground = mix(ground, vec3(0.32, 0.34, 0.20) * mix(0.85, 1.15, grain), creek_verge * 0.55);
+
+		float pad_dirt = 1.0 - smoothstep(24.0, 42.0, d_pad + (turf_var - 0.5) * 9.0);
+		ground = mix(ground, vec3(0.46, 0.20, 0.12) * mix(0.85, 1.14, cobbles), pad_dirt * 0.65);
 	} else {
 		// ALPINE IRON VALLEY
 		vec3 rich_moss = vec3(0.15, 0.21, 0.12);
@@ -398,6 +523,22 @@ void fragment() {
 			float stripe = step(0.5, fract((wp.x + wp.y) * 0.032));
 			sh_dark = mix(vec3(0.78, 0.14, 0.16), vec3(0.92, 0.94, 0.96), stripe);
 			sh_light = mix(vec3(0.92, 0.24, 0.24), vec3(0.98, 0.98, 1.00), stripe);
+		} else if (biome_type == 5) {
+			// Crisp urban concrete sidewalks
+			sh_dark = vec3(0.44, 0.45, 0.44);
+			sh_light = vec3(0.56, 0.56, 0.54);
+		} else if (biome_type == 6) {
+			// Mossy English country grass verge
+			sh_dark = vec3(0.20, 0.32, 0.14);
+			sh_light = vec3(0.34, 0.42, 0.20);
+		} else if (biome_type == 7) {
+			// Muddy woodland trail berm
+			sh_dark = vec3(0.18, 0.14, 0.09);
+			sh_light = vec3(0.30, 0.23, 0.14);
+		} else if (biome_type == 8) {
+			// Red-ochre outback dust shoulder
+			sh_dark = vec3(0.48, 0.19, 0.10);
+			sh_light = vec3(0.68, 0.31, 0.15);
 		}
 		vec3 shoulder_col = mix(sh_dark, sh_light, gravel_grain) * sun_lit;
 		col = mix(col, shoulder_col, in_shoulder * 0.94);
@@ -420,6 +561,22 @@ void fragment() {
 				// Cozy frosted red-brown Workshop cobblestone highway
 				asp_a = vec3(0.30, 0.22, 0.20);
 				asp_b = vec3(0.46, 0.34, 0.30);
+			} else if (biome_type == 5) {
+				// Dark urban tarmac avenue
+				asp_a = vec3(0.14, 0.15, 0.16);
+				asp_b = vec3(0.22, 0.23, 0.24);
+			} else if (biome_type == 6) {
+				// Weathered English country lane tarmac
+				asp_a = vec3(0.20, 0.21, 0.19);
+				asp_b = vec3(0.30, 0.30, 0.27);
+			} else if (biome_type == 7) {
+				// Muddy packed-earth forest logging track
+				asp_a = vec3(0.24, 0.18, 0.12);
+				asp_b = vec3(0.35, 0.27, 0.18);
+			} else if (biome_type == 8) {
+				// Corrugated red-dirt Australian outback track!
+				asp_a = vec3(0.46, 0.20, 0.11);
+				asp_b = vec3(0.60, 0.28, 0.15);
 			}
 			vec3 asphalt = mix(asp_a, asp_b, wear);
 			if (biome_type == 4) {
@@ -462,7 +619,7 @@ void fragment() {
 	}
 
 	// === PHOTOREALISTIC 3D RIVER / GLACIAL STREAM WATER ===
-	float shore_warp = (fbm(wp * 0.032) - 0.5) * 16.0 + (noise(wp * 0.12) - 0.5) * 4.5;
+	float shore_warp = (biome_type == 5) ? 0.0 : ((fbm(wp * 0.032) - 0.5) * 16.0 + (noise(wp * 0.12) - 0.5) * 4.5);
 	float river_r = d_river + shore_warp;
 	float water_edge = 41.0;
 
@@ -545,6 +702,46 @@ void fragment() {
 			mid_col = vec3(0.10, 0.44, 0.48);
 			sky_a = vec3(0.18, 0.56, 0.54);
 			sky_b = vec3(0.68, 0.44, 0.86);
+		} else if (biome_type == 5) {
+			// Industrial urban canal water
+			bed_a = vec3(0.08, 0.11, 0.12);
+			bed_b = vec3(0.18, 0.21, 0.22);
+			caust_col = vec3(0.28, 0.42, 0.46);
+			abs_coeff = vec3(3.6, 2.0, 1.5);
+			deep_water = vec3(0.04, 0.09, 0.12);
+			mid_col = vec3(0.08, 0.18, 0.20);
+			sky_a = vec3(0.30, 0.38, 0.44);
+			sky_b = vec3(0.60, 0.64, 0.66);
+		} else if (biome_type == 6) {
+			// Sparkling clear English chalk stream!
+			bed_a = vec3(0.24, 0.23, 0.16);
+			bed_b = vec3(0.46, 0.44, 0.32);
+			caust_col = vec3(0.60, 0.74, 0.52);
+			abs_coeff = vec3(2.6, 1.25, 0.98);
+			deep_water = vec3(0.04, 0.15, 0.18);
+			mid_col = vec3(0.10, 0.28, 0.28);
+			sky_a = vec3(0.34, 0.52, 0.64);
+			sky_b = vec3(0.78, 0.82, 0.84);
+		} else if (biome_type == 7) {
+			// Deep mossy emerald woodland creek
+			bed_a = vec3(0.10, 0.14, 0.08);
+			bed_b = vec3(0.24, 0.28, 0.18);
+			caust_col = vec3(0.38, 0.56, 0.34);
+			abs_coeff = vec3(3.4, 1.70, 1.45);
+			deep_water = vec3(0.03, 0.09, 0.08);
+			mid_col = vec3(0.06, 0.20, 0.16);
+			sky_a = vec3(0.20, 0.34, 0.30);
+			sky_b = vec3(0.52, 0.60, 0.52);
+		} else if (biome_type == 8) {
+			// Outback Billabong creek — warm ochre-muddy banks & teal waterhole!
+			bed_a = vec3(0.34, 0.18, 0.10);
+			bed_b = vec3(0.54, 0.32, 0.18);
+			caust_col = vec3(0.66, 0.58, 0.36);
+			abs_coeff = vec3(2.4, 1.45, 1.35);
+			deep_water = vec3(0.08, 0.16, 0.16);
+			mid_col = vec3(0.18, 0.28, 0.22);
+			sky_a = vec3(0.38, 0.50, 0.56);
+			sky_b = vec3(0.78, 0.68, 0.56);
 		}
 
 		vec3 riverbed = mix(bed_a, bed_b, smoothstep(0.18, 0.68, bed_stones)) * mix(0.75, 1.15, bed_grit);

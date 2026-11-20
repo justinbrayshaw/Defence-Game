@@ -59,6 +59,14 @@ static func get_waves_for_map(map_id: String) -> Array[Dictionary]:
 		return get_frostline_pass_waves()
 	if map_id == "granite_gorge":
 		return get_granite_gorge_waves()
+	if map_id == "ironbourne":
+		return get_ironbourne_waves()
+	if map_id == "cotswold_vale":
+		return get_cotswold_vale_waves()
+	if map_id == "whisperwood":
+		return get_whisperwood_waves()
+	if map_id == "red_centre":
+		return get_red_centre_waves()
 	if map_id == "north_pole":
 		return get_north_pole_waves()
 	return get_waves()
@@ -773,3 +781,117 @@ static func get_north_pole_waves() -> Array[Dictionary]:
 			],
 		},
 	]
+
+static func get_ironbourne_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"SUBURBAN RECON", "HIGH STREET PUSH", "RAIL AVENUE CONVOY", "DOWNTOWN ARMOR",
+		"ROOFTOP GUNSHIPS", "CANAL CROSSING BLITZ", "CIVIC AIR WING", "BOULEVARD PHALANX",
+		"URBAN BREAKER", "STREET SWEEPERS", "TWIN BLOCKADE", "SKYLINE SORTIE",
+		"CONCRETE CRUSHER", "MIDTOWN SIEGE", "CANAL HAMMER", "CITY HALL ASSAULT",
+		"IRON AVENUE", "METRO OVERRUN", "OPERATION BLACKTOP"
+	]
+	return _build_campaign_waves(19, 1.08, titles)
+
+static func get_cotswold_vale_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"COUNTRY LANE SCOUTS", "ORCHARD PROBE", "HEDGEROW COLUMN", "MEADOW ARMOR",
+		"VALE GUNSHIPS", "STONE BRIDGE PUSH", "PASTURE AIR WING", "WHEATFIELD PHALANX",
+		"MANOR BREAKER", "BARNSTORMER RAID", "SPLIT LANE TITANS", "SHIRES SORTIE",
+		"DRY-STONE SIEGE", "COUNTRYSIDE STORM", "GREEN BELT HAMMER", "ESTATE ASSAULT",
+		"ROLLING THUNDER", "VALLEY OVERRUN", "ROYAL GUARD PUSH", "OPERATION HARVEST"
+	]
+	return _build_campaign_waves(20, 1.16, titles)
+
+static func get_whisperwood_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"TRAILHEAD SCOUTS", "LOGGING ROAD PUSH", "DEEP WOODS CONVOY", "TIMBERLINE ARMOR",
+		"CANOPY GUNSHIPS", "CREEK BRIDGE PINCER", "TREETOP STRIKE", "MOSSWOOD PHALANX",
+		"FOREST BREAKER", "GLADE STAMPEDE", "TWIN TIMBER TITANS", "EMERALD SORTIE",
+		"ANCIENT GROVE SIEGE", "WOODLAND THUNDER", "PINE RIDGE HAMMER", "DEEPWOOD ASSAULT",
+		"SHADOWED TRAILS", "TIMBER OVERRUN", "WILDWOOD VANGUARD", "IRON CANOPY", "OPERATION FALLEN OAK"
+	]
+	return _build_campaign_waves(21, 1.24, titles)
+
+static func get_red_centre_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"RED DUST SCOUTS", "STUART TRACK PROBE", "OUTBACK CARAVAN", "IRON-RED ARMOR",
+		"HEATWAVE GUNSHIPS", "BILLABONG PINCER", "SCORCHED AIR WING", "MESA PHALANX",
+		"ULURU BREAKER", "ROAD TRAIN RAMPAGE", "TWIN RED TITANS", "SOUTHERN CROSS SORTIE",
+		"SPINIFEX SIEGE", "OUTBACK THUNDER", "RED ROCK HAMMER", "STATION ASSAULT",
+		"DUST DEVIL DIVISION", "BUSHFIRE OVERRUN", "CRIMSON VANGUARD", "SUNSTROKE ARMADA",
+		"IRON OUTBACK", "OPERATION RED STORM"
+	]
+	return _build_campaign_waves(22, 1.34, titles)
+
+static func _build_campaign_waves(count: int, intensity: float, titles: Array[String]) -> Array[Dictionary]:
+	var E := EnemyData.EnemyType
+	var out: Array[Dictionary] = []
+	for i in range(count):
+		var w_num: int = i + 1
+		var title: String = titles[i] if i < titles.size() else ("HOSTILE WAVE %d" % w_num)
+		var groups: Array[Dictionary] = []
+		var bonus: int = int(round((42.0 + float(i) * 14.0) * intensity))
+		var pace: float = clampf(1.0 / pow(intensity, 0.45), 0.72, 1.0)
+
+		if w_num == 1:
+			groups.append({"type": E.JEEP, "count": int(round(10 * intensity)), "interval": 0.78 * pace, "delay": 0.0, "lane": -1})
+		elif w_num == 2:
+			groups.append({"type": E.APC, "count": int(round(5 * intensity)), "interval": 1.10 * pace, "delay": 0.0, "lane": 0})
+			groups.append({"type": E.JEEP, "count": int(round(9 * intensity)), "interval": 0.60 * pace, "delay": 1.2, "lane": 1})
+		elif w_num == 3:
+			groups.append({"type": E.APC, "count": int(round(11 * intensity)), "interval": 0.85 * pace, "delay": 0.0, "lane": -1})
+			groups.append({"type": E.JEEP, "count": int(round(10 * intensity)), "interval": 0.44 * pace, "delay": 2.8, "lane": -1})
+		elif w_num == 4:
+			groups.append({"type": E.TANK, "count": int(round(6 * intensity)), "interval": 1.38 * pace, "delay": 0.0, "lane": 0})
+			groups.append({"type": E.APC, "count": int(round(8 * intensity)), "interval": 0.78 * pace, "delay": 1.0, "lane": 1})
+		elif w_num == 5:
+			groups.append({"type": E.CHOPPER, "count": int(round(7 * intensity)), "interval": 1.08 * pace, "delay": 0.0, "lane": 0})
+			groups.append({"type": E.TANK, "count": int(round(5 * intensity)), "interval": 1.35 * pace, "delay": 1.4, "lane": 1})
+			groups.append({"type": E.JEEP, "count": int(round(10 * intensity)), "interval": 0.45 * pace, "delay": 2.0, "lane": 0})
+		elif w_num == count:
+			# Epic multi-domain final wave!
+			bonus = int(round(420.0 * intensity))
+			groups.append({"type": E.JUGGERNAUT, "count": int(round(6 * intensity)), "interval": 2.4 * pace, "delay": 0.0, "lane": -1})
+			groups.append({"type": E.TANK, "count": int(round(18 * intensity)), "interval": 0.65 * pace, "delay": 0.8, "lane": -1})
+			groups.append({"type": E.BOMBER, "count": int(round(11 * intensity)), "interval": 0.98 * pace, "delay": 1.6, "lane": 0})
+			groups.append({"type": E.CHOPPER, "count": int(round(15 * intensity)), "interval": 0.48 * pace, "delay": 2.8, "lane": 0})
+			groups.append({"type": E.JEEP, "count": int(round(22 * intensity)), "interval": 0.22 * pace, "delay": 4.0, "lane": -1})
+		else:
+			var pattern: int = w_num % 5
+			var scale: float = intensity * (1.0 + float(w_num - 5) * 0.075)
+			if pattern == 1:
+				# Dual-lane armor pincer + fast jeeps
+				groups.append({"type": E.TANK, "count": maxi(5, int(round(6.0 * scale))), "interval": 1.10 * pace, "delay": 0.0, "lane": 0})
+				groups.append({"type": E.TANK, "count": maxi(5, int(round(6.0 * scale))), "interval": 1.10 * pace, "delay": 0.5, "lane": 1})
+				groups.append({"type": E.JEEP, "count": int(round(14.0 * scale)), "interval": 0.34 * pace, "delay": 2.5, "lane": -1})
+			elif pattern == 2:
+				# Heavy air wing + mechanized push
+				groups.append({"type": E.CHOPPER, "count": int(round(8.0 * scale)), "interval": 0.80 * pace, "delay": 0.0, "lane": 0})
+				groups.append({"type": E.BOMBER, "count": maxi(3, int(round(4.5 * scale))), "interval": 1.55 * pace, "delay": 1.2, "lane": 0})
+				groups.append({"type": E.APC, "count": int(round(11.0 * scale)), "interval": 0.62 * pace, "delay": 2.0, "lane": -1})
+			elif pattern == 3:
+				# Armor + Bomber division
+				groups.append({"type": E.TANK, "count": int(round(11.0 * scale)), "interval": 0.90 * pace, "delay": 0.0, "lane": -1})
+				groups.append({"type": E.BOMBER, "count": maxi(4, int(round(5.5 * scale))), "interval": 1.40 * pace, "delay": 1.6, "lane": 0})
+				if w_num >= 12:
+					groups.append({"type": E.JUGGERNAUT, "count": maxi(2, int(round(2.0 * scale))), "interval": 3.0 * pace, "delay": 0.6, "lane": -1})
+			elif pattern == 4:
+				# Juggernaut siege wave!
+				var jugs: int = 1 if w_num < 11 else (2 if w_num < 15 else int(round(3.0 * intensity + float(w_num - 15) * 0.45)))
+				groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 2.8 * pace, "delay": 0.0, "lane": -1})
+				groups.append({"type": E.TANK, "count": int(round(9.0 * scale)), "interval": 0.95 * pace, "delay": 1.0, "lane": -1})
+				groups.append({"type": E.CHOPPER, "count": int(round(8.5 * scale)), "interval": 0.72 * pace, "delay": 2.4, "lane": 0})
+			else:
+				# High-speed blitz + heavy bombers
+				groups.append({"type": E.JEEP, "count": int(round(20.0 * scale)), "interval": 0.25 * pace, "delay": 0.0, "lane": -1})
+				groups.append({"type": E.BOMBER, "count": maxi(5, int(round(6.5 * scale))), "interval": 1.25 * pace, "delay": 1.0, "lane": 0})
+				groups.append({"type": E.APC, "count": int(round(12.0 * scale)), "interval": 0.48 * pace, "delay": 2.4, "lane": -1})
+				if w_num >= 14:
+					groups.append({"type": E.JUGGERNAUT, "count": maxi(2, int(round(2.5 * intensity))), "interval": 3.0 * pace, "delay": 0.8, "lane": -1})
+
+		out.append({
+			"title": title,
+			"bonus": bonus,
+			"groups": groups,
+		})
+	return out

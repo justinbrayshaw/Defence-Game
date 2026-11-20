@@ -92,11 +92,11 @@ func _make_box(bg: Color, border: Color, radius: int = 4, border_w: int = 1, pad
 	sb.content_margin_bottom = pad_y
 	return sb
 
-func _style_button(btn: Button, accent: Color = COL_BORDER, bg: Color = Color(0.12, 0.15, 0.13, 0.95)) -> void:
-	btn.add_theme_stylebox_override("normal", _make_box(bg, accent, 4, 1, 10, 6))
-	btn.add_theme_stylebox_override("hover", _make_box(bg.lightened(0.08), accent.lightened(0.22), 4, 1, 10, 6))
-	btn.add_theme_stylebox_override("pressed", _make_box(bg.darkened(0.12), accent.lightened(0.35), 4, 2, 10, 6))
-	btn.add_theme_stylebox_override("disabled", _make_box(Color(0.08, 0.09, 0.08, 0.72), Color(0.20, 0.22, 0.20, 0.6), 4, 1, 10, 6))
+func _style_button(btn: Button, accent: Color = COL_BORDER, bg: Color = Color(0.12, 0.15, 0.13, 0.95), pad_x: int = 10, pad_y: int = 6) -> void:
+	btn.add_theme_stylebox_override("normal", _make_box(bg, accent, 4, 1, pad_x, pad_y))
+	btn.add_theme_stylebox_override("hover", _make_box(bg.lightened(0.08), accent.lightened(0.22), 4, 1, pad_x, pad_y))
+	btn.add_theme_stylebox_override("pressed", _make_box(bg.darkened(0.12), accent.lightened(0.35), 4, 2, pad_x, pad_y))
+	btn.add_theme_stylebox_override("disabled", _make_box(Color(0.08, 0.09, 0.08, 0.72), Color(0.20, 0.22, 0.20, 0.6), 4, 1, pad_x, pad_y))
 	btn.add_theme_color_override("font_color", COL_TEXT)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_disabled_color", Color(0.45, 0.48, 0.45))
@@ -291,25 +291,25 @@ func _build_inspector() -> void:
 	_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_inspector_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_inspector_panel.offset_left = -352
+	_inspector_panel.offset_left = -336
 	_inspector_panel.offset_right = -10
-	_inspector_panel.offset_top = -98
+	_inspector_panel.offset_top = -92
 	_inspector_panel.offset_bottom = -10
-	_inspector_panel.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_AMBER, 5, 1, 12, 8))
+	_inspector_panel.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_AMBER, 5, 1, 10, 6))
 	_inspector_panel.visible = false
 	_root.add_child(_inspector_panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 5)
+	vbox.add_theme_constant_override("separation", 3)
 	_inspector_panel.add_child(vbox)
 
 	_insp_title = Label.new()
-	_insp_title.add_theme_font_size_override("font_size", 14)
+	_insp_title.add_theme_font_size_override("font_size", 13)
 	_insp_title.add_theme_color_override("font_color", COL_AMBER)
 	vbox.add_child(_insp_title)
 
 	_insp_stats = Label.new()
-	_insp_stats.add_theme_font_size_override("font_size", 12)
+	_insp_stats.add_theme_font_size_override("font_size", 11)
 	_insp_stats.add_theme_color_override("font_color", COL_TEXT)
 	vbox.add_child(_insp_stats)
 
@@ -319,22 +319,23 @@ func _build_inspector() -> void:
 
 	_insp_upgrade_btn = Button.new()
 	_insp_upgrade_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_insp_upgrade_btn.add_theme_font_size_override("font_size", 12)
-	_style_button(_insp_upgrade_btn, COL_GREEN, Color(0.10, 0.20, 0.12, 0.95))
+	_insp_upgrade_btn.custom_minimum_size = Vector2(0, 24)
+	_insp_upgrade_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_insp_upgrade_btn, COL_GREEN, Color(0.10, 0.20, 0.12, 0.95), 8, 3)
 	_insp_upgrade_btn.pressed.connect(func(): upgrade_requested.emit())
 	btn_row.add_child(_insp_upgrade_btn)
 
 	_insp_target_btn = Button.new()
-	_insp_target_btn.custom_minimum_size = Vector2(96, 32)
+	_insp_target_btn.custom_minimum_size = Vector2(90, 24)
 	_insp_target_btn.add_theme_font_size_override("font_size", 11)
-	_style_button(_insp_target_btn, COL_AMBER)
+	_style_button(_insp_target_btn, COL_AMBER, Color(0.12, 0.15, 0.13, 0.95), 8, 3)
 	_insp_target_btn.pressed.connect(func(): target_mode_requested.emit())
 	btn_row.add_child(_insp_target_btn)
 
 	_insp_sell_btn = Button.new()
-	_insp_sell_btn.custom_minimum_size = Vector2(84, 32)
+	_insp_sell_btn.custom_minimum_size = Vector2(82, 24)
 	_insp_sell_btn.add_theme_font_size_override("font_size", 11)
-	_style_button(_insp_sell_btn, COL_RED, Color(0.22, 0.10, 0.09, 0.95))
+	_style_button(_insp_sell_btn, COL_RED, Color(0.22, 0.10, 0.09, 0.95), 8, 3)
 	_insp_sell_btn.pressed.connect(func(): sell_requested.emit())
 	btn_row.add_child(_insp_sell_btn)
 
@@ -349,8 +350,8 @@ func _build_menu_overlay() -> void:
 	_menu_overlay.add_child(center)
 
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(680, 440)
-	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 26, 20))
+	card.custom_minimum_size = Vector2(820, 445)
+	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 24, 18))
 	center.add_child(card)
 
 	var vbox := VBoxContainer.new()
@@ -377,7 +378,7 @@ func _build_menu_overlay() -> void:
 	vbox.add_child(sector_title)
 
 	var sector_grid := GridContainer.new()
-	sector_grid.columns = 2
+	sector_grid.columns = 4
 	sector_grid.add_theme_constant_override("h_separation", 8)
 	sector_grid.add_theme_constant_override("v_separation", 8)
 	vbox.add_child(sector_grid)
@@ -385,10 +386,10 @@ func _build_menu_overlay() -> void:
 	for m in MapData.get_all_maps():
 		var mid: String = String(m["id"])
 		var b := Button.new()
-		b.text = "0%d  %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
+		b.text = "0%d %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 48)
-		b.add_theme_font_size_override("font_size", 12)
+		b.custom_minimum_size = Vector2(0, 46)
+		b.add_theme_font_size_override("font_size", 11)
 		_style_button(b, COL_AMBER)
 		b.pressed.connect(func(): _select_sector(mid, true))
 		sector_grid.add_child(b)
@@ -470,6 +471,14 @@ func _select_sector(map_id: String, emit_signal: bool) -> void:
 				accent = Color(0.46, 0.84, 0.98)
 			elif bname == "mountain":
 				accent = Color(0.82, 0.78, 0.70)
+			elif bname == "town":
+				accent = Color(0.74, 0.78, 0.84)
+			elif bname == "countryside":
+				accent = Color(0.68, 0.88, 0.34)
+			elif bname == "forest":
+				accent = Color(0.24, 0.76, 0.42)
+			elif bname == "outback":
+				accent = Color(0.92, 0.44, 0.24)
 			_style_button(btn, accent, Color(0.18, 0.21, 0.16, 0.98))
 		else:
 			_style_button(btn, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))

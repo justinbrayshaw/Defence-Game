@@ -12,6 +12,10 @@ static func get_all_maps() -> Array[Dictionary]:
 		get_scorched_wadi(),
 		get_frostline_pass(),
 		get_granite_gorge(),
+		get_ironbourne(),
+		get_cotswold_vale(),
+		get_whisperwood(),
+		get_red_centre(),
 	]
 
 static func get_map_by_id(map_id: String) -> Dictionary:
@@ -728,6 +732,569 @@ static func get_north_pole() -> Dictionary:
 		"pads": pads,
 		"sandbags": [],
 		"bunkers": [],
+	}
+
+static func get_ironbourne() -> Dictionary:
+	# SECTOR 05 — TOWN / URBAN WARFRONT: Grid-like downtown avenues, central canal with two
+	# urban bridges, brick rooftops, city parks, and an eastern civic loop to Town Hall HQ.
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 175),
+		Vector2(500, 175),
+		Vector2(548, 196),
+		Vector2(565, 245),
+		Vector2(565, 425),
+		Vector2(586, 468),
+		Vector2(635, 480),
+		Vector2(1065, 480),
+		Vector2(1112, 458),
+		Vector2(1130, 408),
+		Vector2(1130, 232),
+		Vector2(1152, 188),
+		Vector2(1202, 175),
+		Vector2(1325, 175),
+		Vector2(1372, 198),
+		Vector2(1390, 250),
+		Vector2(1390, 622),
+		Vector2(1412, 665),
+		Vector2(1455, 678),
+		Vector2(1525, 678),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 785),
+		Vector2(1125, 785),
+		Vector2(1174, 764),
+		Vector2(1195, 718),
+		Vector2(1218, 686),
+		Vector2(1265, 678),
+		Vector2(1525, 678),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 480),
+		Vector2(520, 480),
+		Vector2(1020, 560),
+		Vector2(1525, 678),
+	])
+
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(815, -50),
+		Vector2(815, 240),
+		Vector2(815, 480),
+		Vector2(815, 785),
+		Vector2(815, 1020),
+	])
+
+	var bridge_mid := Vector2(815, 480)
+	var bridge_south := Vector2(815, 785)
+
+	var pads: Array[Vector2] = [
+		# West High Street & Downtown blocks
+		Vector2(155, 86),
+		Vector2(340, 86),
+		Vector2(155, 285),
+		Vector2(345, 285),
+		Vector2(460, 290),
+		Vector2(460, 445),
+		# West South Avenue & Central Park
+		Vector2(175, 675),
+		Vector2(355, 675),
+		Vector2(555, 675),
+		Vector2(255, 878),
+		Vector2(475, 878),
+		Vector2(660, 878),
+		# West Canal Embankment
+		Vector2(692, 195),
+		Vector2(692, 355),
+		Vector2(692, 625),
+		# East Canal Embankment
+		Vector2(945, 195),
+		Vector2(945, 355),
+		Vector2(945, 625),
+		Vector2(975, 878),
+		# East Civic Plaza & Town Hall perimeter
+		Vector2(1258, 290),
+		Vector2(1258, 435),
+		Vector2(1258, 565),
+		Vector2(1065, 625),
+		Vector2(1320, 785),
+		Vector2(1485, 260),
+		Vector2(1485, 430),
+		Vector2(1485, 550),
+		Vector2(1145, 86),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 2)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "ironbourne",
+		"index": 5,
+		"short_name": "IRONBOURNE",
+		"name": "SECTOR 05 — TOWN OF IRONBOURNE",
+		"tag": "TOWN • URBAN GRID • 19 WAVES",
+		"biome": "town",
+		"biome_id": 5,
+		"seed": 5019283,
+		"hp_scale": 1.48,
+		"cash_bonus": 75,
+		"briefing": "Hostile columns have pushed into Ironbourne's street grid. One spearhead snakes through Downtown and the Central Canal while a fast southern force races down Rail Avenue toward Town Hall HQ.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_s],
+		"ground_coarses": [coarse_n, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": bridge_mid,
+		"bridges": [bridge_mid, bridge_south],
+		"base_pos": Vector2(1525, 678),
+		"spawn_positions": [Vector2(18, 175), Vector2(18, 785)],
+		"air_spawn_pos": Vector2(18, 480),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(738, 422), "angle": -0.30},
+			{"pos": Vector2(892, 422), "angle": 0.30},
+			{"pos": Vector2(738, 728), "angle": -0.30},
+			{"pos": Vector2(892, 728), "angle": 0.30},
+			{"pos": Vector2(1430, 616), "angle": 0.0},
+			{"pos": Vector2(1430, 742), "angle": 0.0},
+		],
+		"bunkers": [],
+	}
+
+static func get_cotswold_vale() -> Dictionary:
+	# SECTOR 06 — PLEASANT ENGLISH COUNTRYSIDE: Patchwork emerald pastures & golden wheat fields,
+	# butterfly split-merge-split lanes converging across an old stone bridge before splitting
+	# around rolling farmland toward Manor Estate HQ.
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 205),
+		Vector2(405, 205),
+		Vector2(455, 228),
+		Vector2(478, 285),
+		Vector2(478, 415),
+		Vector2(504, 462),
+		Vector2(558, 480),
+		Vector2(1112, 480),
+		Vector2(1164, 456),
+		Vector2(1188, 402),
+		Vector2(1188, 248),
+		Vector2(1214, 198),
+		Vector2(1268, 182),
+		Vector2(1425, 182),
+		Vector2(1476, 208),
+		Vector2(1515, 265),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 765),
+		Vector2(405, 765),
+		Vector2(455, 742),
+		Vector2(478, 685),
+		Vector2(478, 545),
+		Vector2(504, 498),
+		Vector2(558, 480),
+		Vector2(1112, 480),
+		Vector2(1164, 504),
+		Vector2(1188, 558),
+		Vector2(1188, 712),
+		Vector2(1214, 762),
+		Vector2(1268, 778),
+		Vector2(1395, 778),
+		Vector2(1445, 752),
+		Vector2(1468, 695),
+		Vector2(1468, 365),
+		Vector2(1485, 305),
+		Vector2(1515, 265),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 740),
+		Vector2(560, 565),
+		Vector2(1060, 390),
+		Vector2(1515, 265),
+	])
+
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(952, -50),
+		Vector2(936, 180),
+		Vector2(915, 480),
+		Vector2(894, 740),
+		Vector2(870, 1020),
+	])
+
+	var bridge_center := Vector2(915, 480)
+
+	var pads: Array[Vector2] = [
+		# West Meadow & Orchard Lanes
+		Vector2(160, 106),
+		Vector2(335, 106),
+		Vector2(165, 315),
+		Vector2(365, 315),
+		Vector2(245, 480),
+		Vector2(165, 655),
+		Vector2(365, 655),
+		Vector2(175, 862),
+		Vector2(365, 862),
+		# Central Stone Bridge Approaches (West of stream)
+		Vector2(598, 245),
+		Vector2(598, 375),
+		Vector2(768, 375),
+		Vector2(598, 588),
+		Vector2(768, 588),
+		Vector2(598, 725),
+		Vector2(765, 215),
+		Vector2(748, 765),
+		# East Pastures (East of stream, between split lanes!)
+		Vector2(1055, 215),
+		Vector2(1055, 368),
+		Vector2(1055, 592),
+		Vector2(1055, 758),
+		# Far East Manor Meadows
+		Vector2(1328, 305),
+		Vector2(1328, 480),
+		Vector2(1328, 652),
+		Vector2(1315, 88),
+		Vector2(1315, 875),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "cotswold_vale",
+		"index": 6,
+		"short_name": "COTSWOLD VALE",
+		"name": "SECTOR 06 — COTSWOLD VALE",
+		"tag": "COUNTRYSIDE • SPLIT • 20 WAVES",
+		"biome": "countryside",
+		"biome_id": 6,
+		"seed": 6044812,
+		"hp_scale": 1.56,
+		"cash_bonus": 90,
+		"briefing": "Enemy armor is rolling through peaceful English country lanes, converging over the old Stone Bridge before splitting around the golden wheat fields toward Manor HQ. Hold the bridge choke and guard both eastern meadows.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_s],
+		"ground_coarses": [coarse_n, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": bridge_center,
+		"bridges": [bridge_center],
+		"base_pos": Vector2(1515, 265),
+		"spawn_positions": [Vector2(18, 205), Vector2(18, 765)],
+		"air_spawn_pos": Vector2(18, 720),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(835, 420), "angle": -0.32},
+			{"pos": Vector2(835, 540), "angle": 0.32},
+			{"pos": Vector2(995, 420), "angle": 0.32},
+			{"pos": Vector2(995, 540), "angle": -0.32},
+		],
+		"bunkers": [],
+	}
+
+static func get_whisperwood() -> Dictionary:
+	# SECTOR 07 — DEEP DENSE FOREST: Winding muddy logging trails through ancient emerald
+	# woodland clearings, crossing twin mossy timber bridges over a dark woodland creek.
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 235),
+		Vector2(290, 235),
+		Vector2(340, 210),
+		Vector2(365, 165),
+		Vector2(415, 145),
+		Vector2(545, 145),
+		Vector2(595, 175),
+		Vector2(620, 225),
+		Vector2(665, 235),
+		Vector2(945, 235),
+		Vector2(998, 262),
+		Vector2(1022, 322),
+		Vector2(1022, 415),
+		Vector2(1062, 458),
+		Vector2(1195, 458),
+		Vector2(1248, 430),
+		Vector2(1272, 370),
+		Vector2(1272, 265),
+		Vector2(1318, 225),
+		Vector2(1415, 225),
+		Vector2(1465, 270),
+		Vector2(1480, 385),
+		Vector2(1515, 480),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 730),
+		Vector2(290, 730),
+		Vector2(340, 755),
+		Vector2(365, 800),
+		Vector2(415, 818),
+		Vector2(545, 818),
+		Vector2(595, 788),
+		Vector2(620, 742),
+		Vector2(665, 730),
+		Vector2(965, 730),
+		Vector2(1018, 700),
+		Vector2(1042, 642),
+		Vector2(1068, 595),
+		Vector2(1130, 580),
+		Vector2(1265, 580),
+		Vector2(1318, 608),
+		Vector2(1342, 668),
+		Vector2(1365, 720),
+		Vector2(1415, 735),
+		Vector2(1465, 690),
+		Vector2(1480, 575),
+		Vector2(1515, 480),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 145),
+		Vector2(520, 365),
+		Vector2(1030, 555),
+		Vector2(1515, 480),
+	])
+
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(732, -50),
+		Vector2(738, 120),
+		Vector2(745, 235),
+		Vector2(768, 405),
+		Vector2(735, 575),
+		Vector2(745, 730),
+		Vector2(762, 885),
+		Vector2(775, 1020),
+	])
+
+	var bridge_north := Vector2(745, 235)
+	var bridge_south := Vector2(745, 730)
+
+	var pads: Array[Vector2] = [
+		# West Woodland Clearings
+		Vector2(148, 130),
+		Vector2(265, 130),
+		Vector2(155, 345),
+		Vector2(285, 345),
+		Vector2(215, 480),
+		Vector2(155, 618),
+		Vector2(285, 618),
+		Vector2(148, 835),
+		Vector2(265, 835),
+		# Central Logging Glades (West of creek)
+		Vector2(478, 265),
+		Vector2(478, 412),
+		Vector2(615, 385),
+		Vector2(478, 552),
+		Vector2(615, 575),
+		Vector2(478, 700),
+		# Creek Overlooks (East of creek)
+		Vector2(875, 118),
+		Vector2(885, 365),
+		Vector2(885, 595),
+		Vector2(875, 845),
+		# Deep Eastern Timber Clearings
+		Vector2(1148, 225),
+		Vector2(1148, 348),
+		Vector2(1148, 708),
+		Vector2(1148, 835),
+		Vector2(1375, 345),
+		Vector2(1365, 480),
+		Vector2(1242, 715),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "whisperwood",
+		"index": 7,
+		"short_name": "WHISPERWOOD",
+		"name": "SECTOR 07 — WHISPERWOOD FOREST",
+		"tag": "FOREST • 2 TRAILS • 21 WAVES",
+		"biome": "forest",
+		"biome_id": 7,
+		"seed": 7712904,
+		"hp_scale": 1.66,
+		"cash_bonus": 105,
+		"briefing": "Armored columns are pushing deep through Whisperwood's dense ancient timber trails, crossing two mossy woodland bridges while gunships skim the canopy. Fortify the forest clearings and seal both trails.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_s],
+		"ground_coarses": [coarse_n, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": bridge_north,
+		"bridges": [bridge_north, bridge_south],
+		"base_pos": Vector2(1515, 480),
+		"spawn_positions": [Vector2(18, 235), Vector2(18, 730)],
+		"air_spawn_pos": Vector2(18, 175),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(665, 175), "angle": 0.25},
+			{"pos": Vector2(825, 175), "angle": -0.25},
+			{"pos": Vector2(665, 790), "angle": -0.25},
+			{"pos": Vector2(825, 790), "angle": 0.25},
+		],
+		"bunkers": [
+			{"pos": Vector2(615, 480), "angle": 0.0},
+			{"pos": Vector2(1265, 835), "angle": -PI * 0.5},
+		],
+	}
+
+static func get_red_centre() -> Dictionary:
+	# SECTOR 08 — THE AUSTRALIAN OUTBACK: Deep iron-oxide crimson red earth, Uluru-style
+	# sandstone mesas, eucalyptus ghost gums, spinifex tufts, high-speed corrugated red-dirt
+	# highways crossing a muddy billabong creek toward Outback Command Base.
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 195),
+		Vector2(395, 195),
+		Vector2(448, 222),
+		Vector2(470, 285),
+		Vector2(470, 395),
+		Vector2(505, 442),
+		Vector2(695, 442),
+		Vector2(742, 405),
+		Vector2(762, 335),
+		Vector2(762, 255),
+		Vector2(802, 210),
+		Vector2(1155, 210),
+		Vector2(1202, 238),
+		Vector2(1222, 300),
+		Vector2(1222, 425),
+		Vector2(1262, 475),
+		Vector2(1515, 475),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 765),
+		Vector2(425, 765),
+		Vector2(478, 740),
+		Vector2(502, 682),
+		Vector2(502, 635),
+		Vector2(545, 595),
+		Vector2(725, 595),
+		Vector2(768, 635),
+		Vector2(788, 705),
+		Vector2(825, 755),
+		Vector2(1155, 755),
+		Vector2(1202, 728),
+		Vector2(1222, 665),
+		Vector2(1222, 530),
+		Vector2(1262, 475),
+		Vector2(1515, 475),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 480),
+		Vector2(560, 515),
+		Vector2(1040, 445),
+		Vector2(1515, 475),
+	])
+
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(908, -50),
+		Vector2(915, 100),
+		Vector2(920, 210),
+		Vector2(938, 390),
+		Vector2(905, 585),
+		Vector2(920, 755),
+		Vector2(932, 895),
+		Vector2(945, 1020),
+	])
+
+	var bridge_north := Vector2(920, 210)
+	var bridge_south := Vector2(920, 755)
+
+	var pads: Array[Vector2] = [
+		# West Red-Dirt Highway Approaches
+		Vector2(160, 96),
+		Vector2(335, 96),
+		Vector2(165, 305),
+		Vector2(355, 305),
+		Vector2(245, 485),
+		Vector2(165, 658),
+		Vector2(355, 658),
+		Vector2(175, 865),
+		Vector2(365, 865),
+		# Central Outback Mesa & Spinifex Flats
+		Vector2(615, 225),
+		Vector2(615, 338),
+		Vector2(615, 518),
+		Vector2(615, 725),
+		Vector2(615, 855),
+		# Billabong Crossing Overlooks
+		Vector2(805, 104),
+		Vector2(1045, 104),
+		Vector2(805, 862),
+		Vector2(1045, 862),
+		# East Billabong Flats (between creek & east convergence)
+		Vector2(1058, 325),
+		Vector2(1122, 418),
+		Vector2(1042, 480),
+		Vector2(1122, 542),
+		Vector2(1058, 638),
+		# Outback Station HQ Perimeter
+		Vector2(1335, 255),
+		Vector2(1365, 375),
+		Vector2(1365, 580),
+		Vector2(1335, 705),
+		Vector2(1465, 315),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "red_centre",
+		"index": 8,
+		"short_name": "RED CENTRE",
+		"name": "SECTOR 08 — THE AUSTRALIAN OUTBACK",
+		"tag": "OUTBACK • FINAL • 22 WAVES",
+		"biome": "outback",
+		"biome_id": 8,
+		"seed": 8806142,
+		"hp_scale": 1.78,
+		"cash_bonus": 120,
+		"briefing": "Heavy mechanized battalions are roaring across the blistering iron-red tracks of the Australian Outback toward Outback Command. Hold the Billabong crossings and survive the relentless 22-wave endurance assault.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_s],
+		"ground_coarses": [coarse_n, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": bridge_north,
+		"bridges": [bridge_north, bridge_south],
+		"base_pos": Vector2(1515, 475),
+		"spawn_positions": [Vector2(18, 195), Vector2(18, 765)],
+		"air_spawn_pos": Vector2(18, 480),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(840, 152), "angle": 0.30},
+			{"pos": Vector2(1002, 152), "angle": -0.30},
+			{"pos": Vector2(840, 815), "angle": -0.30},
+			{"pos": Vector2(1002, 815), "angle": 0.30},
+			{"pos": Vector2(1425, 412), "angle": 0.0},
+			{"pos": Vector2(1425, 540), "angle": 0.0},
+		],
+		"bunkers": [
+			{"pos": Vector2(465, 520), "angle": 0.0},
+			{"pos": Vector2(1450, 680), "angle": -PI * 0.78},
+		],
 	}
 
 static func _smooth_chaikin(pts: PackedVector2Array, iterations: int) -> PackedVector2Array:
