@@ -57,6 +57,7 @@ var _banner_label: Label
 var _banner_timer: float = 0.0
 
 const SECTORS_PER_PAGE: int = 8
+const GAME_TITLE := "STATIONARY AUTOMATED WEAPON PLACEMENT ON SOVEREIGN TACTICAL BASTIONS FOR THE PREVENTION OF UNAUTHORIZED VEHICULAR AND AERIAL INCURSION INTO COMMAND HEADQUARTERS"
 
 var _menu_overlay: ColorRect
 var _menu_title: Label
@@ -395,9 +396,10 @@ func _build_menu_overlay() -> void:
 	card.add_child(vbox)
 
 	_menu_title = Label.new()
-	_menu_title.text = "DEFENCE ZONE"
+	_menu_title.text = GAME_TITLE
 	_menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_menu_title.add_theme_font_size_override("font_size", 24)
+	_menu_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_menu_title.add_theme_font_size_override("font_size", 16)
 	_menu_title.add_theme_color_override("font_color", COL_AMBER)
 	vbox.add_child(_menu_title)
 
@@ -557,7 +559,7 @@ func _set_sector_page(page_idx: int) -> void:
 func _select_sector(map_id: String, emit_signal: bool) -> void:
 	_selected_map_id = map_id
 	var m := MapData.get_map_by_id(map_id)
-	_menu_title.text = "DEFENCE ZONE: %s" % String(m["short_name"])
+	_menu_title.text = "%s: %s" % [GAME_TITLE, String(m["short_name"])]
 	_menu_sub.text = "SECTOR %02d  •  %s" % [int(m["index"]), String(m["tag"])]
 	_menu_brief.text = String(m["briefing"])
 

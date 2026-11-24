@@ -1,6 +1,6 @@
-# Defence Zone (Godot 4)
+# Stationary Automated Weapon Placement on Sovereign Tactical Bastions for the Prevention of Unauthorized Vehicular and Aerial Incursion Into Command Headquarters
 
-A gritty, tactical military tower defense game inspired by **Defense Zone 3 HD**, built in **Godot 4 (GDScript)** with 100% procedural 3D-shaded terrain, animated water, detailed military units, combat VFX, and synthesized tactical audio—zero external asset packs required.
+A gritty, tactical military tower defense game built in **Godot 4 (GDScript)** with 100% procedural 3D-shaded terrain, animated water, detailed military units, combat VFX, and synthesized tactical audio—zero external asset packs required.
 
 ## Running the Project
 1. Install **Godot 4.3+** (standard GDScript edition, e.g. via `winget install GodotEngine.GodotEngine` or [godotengine.org](https://godotengine.org/download/)).
