@@ -46,6 +46,11 @@ func _generate_all_sfx() -> void:
 	_streams["cannon"] = _make_cannon()
 	_streams["missile"] = _make_missile()
 	_streams["cryo"] = _make_cryo()
+	_streams["laser"] = _make_laser()
+	_streams["mlrs"] = _make_mlrs()
+	_streams["drone_launch"] = _make_drone_launch()
+	_streams["drone_fire"] = _make_drone_fire()
+	_streams["uav_launch"] = _make_uav_launch()
 	_streams["explosion_small"] = _make_explosion(0.28, 120.0, 0.72)
 	_streams["explosion_big"] = _make_explosion(0.62, 72.0, 0.95)
 	_streams["airstrike_jet"] = _make_jet_flyby()
@@ -274,4 +279,82 @@ func _make_festive_chime() -> AudioStreamWAV:
 		# Subtle sleigh-bell shimmer
 		var jingle := randf_range(-1.0, 1.0) * sin(TAU * 4200.0 * t) * exp(-t * 4.5) * 0.08
 		buf[i] = clampf(sample + jingle, -1.0, 1.0)
+	return _build_wav(buf)
+
+func _make_laser() -> AudioStreamWAV:
+	# High-energy directed-energy hum + crisp thermal sizzle
+	var dur := 0.16
+	var n := int(dur * SAMPLE_RATE)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	for i in range(n):
+		var t := float(i) / SAMPLE_RATE
+		var env := sin(PI * clampf(t / dur, 0.0, 1.0))
+		var hum := sin(TAU * 220.0 * t) * 0.42 + sin(TAU * 440.0 * t) * 0.28 + sin(TAU * 880.0 * t) * 0.14
+		var sizzle := randf_range(-1.0, 1.0) * 0.16
+		buf[i] = clampf((hum + sizzle) * env * 0.48, -1.0, 1.0)
+	return _build_wav(buf)
+
+func _make_mlrs() -> AudioStreamWAV:
+	# Punchy rapid HIMARS rocket ignition whoosh
+	var dur := 0.20
+	var n := int(dur * SAMPLE_RATE)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	var lp := 0.0
+	for i in range(n):
+		var t := float(i) / SAMPLE_RATE
+		var env := minf(t / 0.018, 1.0) * exp(-t * 10.5)
+		var raw := randf_range(-1.0, 1.0)
+		lp = lp * 0.70 + raw * 0.30
+		var roar := sin(TAU * lerpf(210.0, 520.0, t / dur) * t) * 0.24
+		buf[i] = clampf((lp * 0.72 + roar) * env * 0.72, -1.0, 1.0)
+	return _build_wav(buf)
+
+func _make_drone_launch() -> AudioStreamWAV:
+	# Rising brushless rotor spool-up + pneumatic launch snap
+	var dur := 0.28
+	var n := int(dur * SAMPLE_RATE)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	var phase := 0.0
+	for i in range(n):
+		var t := float(i) / SAMPLE_RATE
+		var u := t / dur
+		var freq := lerpf(260.0, 960.0, u * u)
+		phase += TAU * freq / SAMPLE_RATE
+		var env := minf(t / 0.025, 1.0) * exp(-maxf(0.0, t - 0.14) * 14.0)
+		var whirr := sin(phase) * 0.55 + sin(phase * 2.0) * 0.22
+		var pop := randf_range(-1.0, 1.0) * exp(-t * 45.0) * 0.35
+		buf[i] = clampf((whirr + pop) * env * 0.52, -1.0, 1.0)
+	return _build_wav(buf)
+
+func _make_drone_fire() -> AudioStreamWAV:
+	# Tight suppressed tactical micro-burst
+	var dur := 0.055
+	var n := int(dur * SAMPLE_RATE)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	for i in range(n):
+		var t := float(i) / SAMPLE_RATE
+		var env := exp(-t * 62.0)
+		var snap := sin(TAU * lerpf(640.0, 180.0, t / dur) * t) * 0.55
+		var crack := randf_range(-1.0, 1.0) * 0.45
+		buf[i] = clampf((snap + crack) * env * 0.46, -1.0, 1.0)
+	return _build_wav(buf)
+
+func _make_uav_launch() -> AudioStreamWAV:
+	# Hostile catapult buzz launch
+	var dur := 0.22
+	var n := int(dur * SAMPLE_RATE)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	var phase := 0.0
+	for i in range(n):
+		var t := float(i) / SAMPLE_RATE
+		var freq := lerpf(190.0, 480.0, t / dur)
+		phase += TAU * freq / SAMPLE_RATE
+		var env := minf(t / 0.02, 1.0) * exp(-t * 9.0)
+		var buzz := signf(sin(phase)) * 0.25 + sin(phase) * 0.45
+		buf[i] = clampf(buzz * env * 0.42, -1.0, 1.0)
 	return _build_wav(buf)

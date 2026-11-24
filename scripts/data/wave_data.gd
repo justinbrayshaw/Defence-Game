@@ -67,6 +67,22 @@ static func get_waves_for_map(map_id: String) -> Array[Dictionary]:
 		return get_whisperwood_waves()
 	if map_id == "red_centre":
 		return get_red_centre_waves()
+	if map_id == "coral_atoll":
+		return get_coral_atoll_waves()
+	if map_id == "obsidian_caldera":
+		return get_obsidian_caldera_waves()
+	if map_id == "bayou_delta":
+		return get_bayou_delta_waves()
+	if map_id == "neon_tokyo":
+		return get_neon_tokyo_waves()
+	if map_id == "tranquility_crater":
+		return get_tranquility_crater_waves()
+	if map_id == "olympus_rift":
+		return get_olympus_rift_waves()
+	if map_id == "europa_abyss":
+		return get_europa_abyss_waves()
+	if map_id == "xenon_prime":
+		return get_xenon_prime_waves()
 	if map_id == "north_pole":
 		return get_north_pole_waves()
 	return get_waves()
@@ -125,9 +141,10 @@ static func get_waves() -> Array[Dictionary]:
 			"title": "COMBINED ARMS",
 			"bonus": 65,
 			"groups": [
-				{"type": E.TANK, "count": 6, "interval": 1.5, "delay": 0.0, "lane": 0},
-				{"type": E.APC, "count": 8, "interval": 0.9, "delay": 1.0, "lane": 0},
-				{"type": E.CHOPPER, "count": 5, "interval": 1.35, "delay": 3.8, "lane": 0},
+				{"type": E.TANK, "count": 5, "interval": 1.5, "delay": 0.0, "lane": 0},
+				{"type": E.UAV_CARRIER, "count": 2, "interval": 3.4, "delay": 1.4, "lane": 0},
+				{"type": E.APC, "count": 6, "interval": 0.9, "delay": 1.0, "lane": 0},
+				{"type": E.CHOPPER, "count": 4, "interval": 1.35, "delay": 3.8, "lane": 0},
 			],
 		},
 		{
@@ -142,8 +159,9 @@ static func get_waves() -> Array[Dictionary]:
 			"title": "IRON PHALANX",
 			"bonus": 85,
 			"groups": [
-				{"type": E.TANK, "count": 9, "interval": 1.25, "delay": 0.0, "lane": 0},
-				{"type": E.APC, "count": 10, "interval": 0.75, "delay": 2.5, "lane": 0},
+				{"type": E.APS_TANK, "count": 3, "interval": 2.2, "delay": 0.0, "lane": 0},
+				{"type": E.TANK, "count": 6, "interval": 1.25, "delay": 1.5, "lane": 0},
+				{"type": E.APC, "count": 8, "interval": 0.75, "delay": 2.5, "lane": 0},
 			],
 		},
 		{
@@ -151,7 +169,7 @@ static func get_waves() -> Array[Dictionary]:
 			"bonus": 110,
 			"groups": [
 				{"type": E.JUGGERNAUT, "count": 1, "interval": 1.0, "delay": 0.0, "lane": 0},
-				{"type": E.TANK, "count": 6, "interval": 1.4, "delay": 1.8, "lane": 0},
+				{"type": E.TANK, "count": 5, "interval": 1.4, "delay": 1.8, "lane": 0},
 				{"type": E.CHOPPER, "count": 6, "interval": 1.1, "delay": 4.2, "lane": 0},
 			],
 		},
@@ -159,16 +177,18 @@ static func get_waves() -> Array[Dictionary]:
 			"title": "LIGHTNING RAID",
 			"bonus": 100,
 			"groups": [
-				{"type": E.JEEP, "count": 18, "interval": 0.34, "delay": 0.0, "lane": 0},
-				{"type": E.BOMBER, "count": 5, "interval": 1.7, "delay": 1.5, "lane": 0},
-				{"type": E.APC, "count": 10, "interval": 0.65, "delay": 3.5, "lane": 0},
+				{"type": E.JEEP, "count": 16, "interval": 0.34, "delay": 0.0, "lane": 0},
+				{"type": E.UAV_CARRIER, "count": 3, "interval": 2.8, "delay": 1.2, "lane": 0},
+				{"type": E.BOMBER, "count": 4, "interval": 1.7, "delay": 1.5, "lane": 0},
+				{"type": E.APC, "count": 8, "interval": 0.65, "delay": 3.5, "lane": 0},
 			],
 		},
 		{
 			"title": "ARMOR DIVISION",
 			"bonus": 120,
 			"groups": [
-				{"type": E.TANK, "count": 12, "interval": 1.05, "delay": 0.0, "lane": 0},
+				{"type": E.APS_TANK, "count": 5, "interval": 1.8, "delay": 0.0, "lane": 0},
+				{"type": E.TANK, "count": 8, "interval": 1.05, "delay": 1.2, "lane": 0},
 				{"type": E.JUGGERNAUT, "count": 2, "interval": 5.0, "delay": 2.0, "lane": 0},
 			],
 		},
@@ -176,9 +196,10 @@ static func get_waves() -> Array[Dictionary]:
 			"title": "VALKYRIE SORTIE",
 			"bonus": 130,
 			"groups": [
-				{"type": E.CHOPPER, "count": 10, "interval": 0.8, "delay": 0.0, "lane": 0},
-				{"type": E.BOMBER, "count": 7, "interval": 1.45, "delay": 1.2, "lane": 0},
-				{"type": E.TANK, "count": 8, "interval": 1.2, "delay": 2.5, "lane": 0},
+				{"type": E.SKY_FORTRESS, "count": 1, "interval": 1.0, "delay": 0.0, "lane": 0},
+				{"type": E.CHOPPER, "count": 9, "interval": 0.8, "delay": 1.0, "lane": 0},
+				{"type": E.BOMBER, "count": 6, "interval": 1.45, "delay": 1.6, "lane": 0},
+				{"type": E.TANK, "count": 7, "interval": 1.2, "delay": 2.5, "lane": 0},
 			],
 		},
 		{
@@ -186,7 +207,8 @@ static func get_waves() -> Array[Dictionary]:
 			"bonus": 150,
 			"groups": [
 				{"type": E.JUGGERNAUT, "count": 3, "interval": 3.8, "delay": 0.0, "lane": 0},
-				{"type": E.TANK, "count": 12, "interval": 0.95, "delay": 1.0, "lane": 0},
+				{"type": E.APS_TANK, "count": 5, "interval": 1.6, "delay": 1.0, "lane": 0},
+				{"type": E.TANK, "count": 8, "interval": 0.95, "delay": 1.6, "lane": 0},
 				{"type": E.BOMBER, "count": 6, "interval": 1.4, "delay": 3.5, "lane": 0},
 			],
 		},
@@ -194,11 +216,13 @@ static func get_waves() -> Array[Dictionary]:
 			"title": "OPERATION IRON STORM",
 			"bonus": 250,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 4, "interval": 3.4, "delay": 0.0, "lane": 0},
-				{"type": E.TANK, "count": 14, "interval": 0.85, "delay": 1.2, "lane": 0},
-				{"type": E.BOMBER, "count": 8, "interval": 1.25, "delay": 2.5, "lane": 0},
-				{"type": E.CHOPPER, "count": 10, "interval": 0.7, "delay": 4.0, "lane": 0},
-				{"type": E.JEEP, "count": 16, "interval": 0.3, "delay": 5.5, "lane": 0},
+				{"type": E.JUGGERNAUT, "count": 3, "interval": 3.4, "delay": 0.0, "lane": 0},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 5.2, "delay": 1.8, "lane": 0},
+				{"type": E.APS_TANK, "count": 6, "interval": 1.4, "delay": 1.2, "lane": 0},
+				{"type": E.UAV_CARRIER, "count": 3, "interval": 2.6, "delay": 2.2, "lane": 0},
+				{"type": E.TANK, "count": 10, "interval": 0.85, "delay": 1.4, "lane": 0},
+				{"type": E.BOMBER, "count": 6, "interval": 1.25, "delay": 2.5, "lane": 0},
+				{"type": E.CHOPPER, "count": 8, "interval": 0.7, "delay": 4.0, "lane": 0},
 			],
 		},
 	]
@@ -259,7 +283,8 @@ static func get_scorched_wadi_waves() -> Array[Dictionary]:
 			"title": "OASIS ASSAULT",
 			"bonus": 75,
 			"groups": [
-				{"type": E.TANK, "count": 7, "interval": 1.35, "delay": 0.0, "lane": -1},
+				{"type": E.TANK, "count": 5, "interval": 1.35, "delay": 0.0, "lane": -1},
+				{"type": E.UAV_CARRIER, "count": 2, "interval": 3.2, "delay": 1.2, "lane": -1},
 				{"type": E.CHOPPER, "count": 6, "interval": 1.15, "delay": 2.0, "lane": 0},
 				{"type": E.BOMBER, "count": 2, "interval": 2.40, "delay": 4.0, "lane": 0},
 			],
@@ -277,8 +302,9 @@ static func get_scorched_wadi_waves() -> Array[Dictionary]:
 			"title": "IRON CARAVAN",
 			"bonus": 95,
 			"groups": [
-				{"type": E.TANK, "count": 11, "interval": 1.10, "delay": 0.0, "lane": -1},
-				{"type": E.APC, "count": 12, "interval": 0.65, "delay": 2.2, "lane": -1},
+				{"type": E.APS_TANK, "count": 4, "interval": 2.0, "delay": 0.0, "lane": -1},
+				{"type": E.TANK, "count": 8, "interval": 1.10, "delay": 1.2, "lane": -1},
+				{"type": E.APC, "count": 10, "interval": 0.65, "delay": 2.2, "lane": -1},
 			],
 		},
 		{
@@ -312,9 +338,11 @@ static func get_scorched_wadi_waves() -> Array[Dictionary]:
 			"title": "MIRAGE SORTIE",
 			"bonus": 145,
 			"groups": [
-				{"type": E.CHOPPER, "count": 12, "interval": 0.72, "delay": 0.0, "lane": 0},
-				{"type": E.BOMBER, "count": 8, "interval": 1.35, "delay": 1.2, "lane": 0},
-				{"type": E.TANK, "count": 9, "interval": 1.10, "delay": 2.4, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 1, "interval": 1.0, "delay": 0.0, "lane": 0},
+				{"type": E.CHOPPER, "count": 10, "interval": 0.72, "delay": 1.0, "lane": 0},
+				{"type": E.BOMBER, "count": 7, "interval": 1.35, "delay": 1.4, "lane": 0},
+				{"type": E.APS_TANK, "count": 4, "interval": 1.8, "delay": 2.0, "lane": -1},
+				{"type": E.TANK, "count": 6, "interval": 1.10, "delay": 2.6, "lane": -1},
 			],
 		},
 		{
@@ -340,11 +368,12 @@ static func get_scorched_wadi_waves() -> Array[Dictionary]:
 			"title": "OPERATION RED SAND",
 			"bonus": 300,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 5, "interval": 3.0, "delay": 0.0, "lane": -1},
-				{"type": E.TANK, "count": 16, "interval": 0.78, "delay": 1.0, "lane": -1},
-				{"type": E.BOMBER, "count": 10, "interval": 1.15, "delay": 2.2, "lane": 0},
-				{"type": E.CHOPPER, "count": 12, "interval": 0.62, "delay": 3.8, "lane": 0},
-				{"type": E.JEEP, "count": 18, "interval": 0.28, "delay": 5.0, "lane": -1},
+				{"type": E.JUGGERNAUT, "count": 4, "interval": 3.0, "delay": 0.0, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 4.8, "delay": 1.6, "lane": 0},
+				{"type": E.APS_TANK, "count": 6, "interval": 1.35, "delay": 1.0, "lane": -1},
+				{"type": E.UAV_CARRIER, "count": 4, "interval": 2.4, "delay": 2.0, "lane": -1},
+				{"type": E.TANK, "count": 12, "interval": 0.78, "delay": 1.2, "lane": -1},
+				{"type": E.BOMBER, "count": 8, "interval": 1.15, "delay": 2.2, "lane": 0},
 			],
 		},
 	]
@@ -415,7 +444,9 @@ static func get_frostline_pass_waves() -> Array[Dictionary]:
 			"title": "ICEBREAKER COLUMN",
 			"bonus": 95,
 			"groups": [
-				{"type": E.TANK, "count": 10, "interval": 1.05, "delay": 0.0, "lane": -1},
+				{"type": E.APS_TANK, "count": 4, "interval": 1.9, "delay": 0.0, "lane": -1},
+				{"type": E.UAV_CARRIER, "count": 2, "interval": 3.0, "delay": 1.4, "lane": -1},
+				{"type": E.TANK, "count": 7, "interval": 1.05, "delay": 1.0, "lane": -1},
 				{"type": E.BOMBER, "count": 4, "interval": 1.85, "delay": 2.2, "lane": 0},
 			],
 		},
@@ -468,9 +499,11 @@ static func get_frostline_pass_waves() -> Array[Dictionary]:
 			"title": "GLACIER STORM",
 			"bonus": 190,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 3, "interval": 3.2, "delay": 0.0, "lane": -1},
-				{"type": E.BOMBER, "count": 9, "interval": 1.18, "delay": 1.2, "lane": 0},
-				{"type": E.CHOPPER, "count": 12, "interval": 0.62, "delay": 2.6, "lane": 0},
+				{"type": E.JUGGERNAUT, "count": 2, "interval": 3.2, "delay": 0.0, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 4.6, "delay": 1.2, "lane": 0},
+				{"type": E.APS_TANK, "count": 5, "interval": 1.5, "delay": 1.6, "lane": -1},
+				{"type": E.BOMBER, "count": 7, "interval": 1.18, "delay": 1.8, "lane": 0},
+				{"type": E.CHOPPER, "count": 10, "interval": 0.62, "delay": 2.6, "lane": 0},
 			],
 		},
 		{
@@ -571,8 +604,10 @@ static func get_granite_gorge_waves() -> Array[Dictionary]:
 			"title": "BOULDER BREAKER",
 			"bonus": 105,
 			"groups": [
-				{"type": E.TANK, "count": 12, "interval": 0.98, "delay": 0.0, "lane": -1},
-				{"type": E.BOMBER, "count": 5, "interval": 1.75, "delay": 2.0, "lane": 0},
+				{"type": E.APS_TANK, "count": 4, "interval": 1.8, "delay": 0.0, "lane": -1},
+				{"type": E.UAV_CARRIER, "count": 3, "interval": 2.8, "delay": 1.2, "lane": -1},
+				{"type": E.TANK, "count": 8, "interval": 0.98, "delay": 0.8, "lane": -1},
+				{"type": E.BOMBER, "count": 4, "interval": 1.75, "delay": 2.0, "lane": 0},
 			],
 		},
 		{
@@ -624,9 +659,11 @@ static func get_granite_gorge_waves() -> Array[Dictionary]:
 			"title": "ALPINE THUNDER",
 			"bonus": 205,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 3, "interval": 2.9, "delay": 0.0, "lane": -1},
-				{"type": E.BOMBER, "count": 10, "interval": 1.12, "delay": 1.1, "lane": 0},
-				{"type": E.CHOPPER, "count": 13, "interval": 0.58, "delay": 2.4, "lane": 0},
+				{"type": E.JUGGERNAUT, "count": 2, "interval": 2.9, "delay": 0.0, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 4.4, "delay": 1.0, "lane": 0},
+				{"type": E.APS_TANK, "count": 5, "interval": 1.4, "delay": 1.5, "lane": -1},
+				{"type": E.BOMBER, "count": 8, "interval": 1.12, "delay": 1.6, "lane": 0},
+				{"type": E.CHOPPER, "count": 10, "interval": 0.58, "delay": 2.4, "lane": 0},
 			],
 		},
 		{
@@ -718,9 +755,10 @@ static func get_north_pole_waves() -> Array[Dictionary]:
 			"title": "DAY 6 — PEPPERMINT PINCER",
 			"bonus": 85,
 			"groups": [
-				{"type": E.TANK, "count": 5, "interval": 1.30, "delay": 0.0, "lane": 0},
-				{"type": E.TANK, "count": 5, "interval": 1.30, "delay": 0.6, "lane": 1},
-				{"type": E.CHOPPER, "count": 6, "interval": 1.0, "delay": 2.8, "lane": 0},
+				{"type": E.TANK, "count": 4, "interval": 1.30, "delay": 0.0, "lane": 0},
+				{"type": E.UAV_CARRIER, "count": 2, "interval": 3.0, "delay": 1.0, "lane": 1},
+				{"type": E.TANK, "count": 4, "interval": 1.30, "delay": 0.6, "lane": 1},
+				{"type": E.CHOPPER, "count": 5, "interval": 1.0, "delay": 2.8, "lane": 0},
 			],
 		},
 		{
@@ -737,17 +775,19 @@ static func get_north_pole_waves() -> Array[Dictionary]:
 			"bonus": 130,
 			"groups": [
 				{"type": E.JUGGERNAUT, "count": 1, "interval": 1.0, "delay": 0.0, "lane": 0},
-				{"type": E.TANK, "count": 8, "interval": 1.15, "delay": 1.5, "lane": 1},
-				{"type": E.JEEP, "count": 14, "interval": 0.36, "delay": 3.2, "lane": -1},
+				{"type": E.APS_TANK, "count": 3, "interval": 2.0, "delay": 1.0, "lane": -1},
+				{"type": E.TANK, "count": 6, "interval": 1.15, "delay": 1.5, "lane": 1},
+				{"type": E.JEEP, "count": 12, "interval": 0.36, "delay": 3.2, "lane": -1},
 			],
 		},
 		{
 			"title": "DAY 9 — TINSEL SKY CARNIVAL",
 			"bonus": 145,
 			"groups": [
-				{"type": E.BOMBER, "count": 7, "interval": 1.35, "delay": 0.0, "lane": 0},
-				{"type": E.CHOPPER, "count": 12, "interval": 0.65, "delay": 1.0, "lane": 0},
-				{"type": E.TANK, "count": 9, "interval": 1.0, "delay": 2.4, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 1, "interval": 1.0, "delay": 0.0, "lane": 0},
+				{"type": E.BOMBER, "count": 6, "interval": 1.35, "delay": 1.0, "lane": 0},
+				{"type": E.UAV_CARRIER, "count": 3, "interval": 2.6, "delay": 1.6, "lane": -1},
+				{"type": E.CHOPPER, "count": 10, "interval": 0.65, "delay": 1.2, "lane": 0},
 			],
 		},
 		{
@@ -755,29 +795,32 @@ static func get_north_pole_waves() -> Array[Dictionary]:
 			"bonus": 170,
 			"groups": [
 				{"type": E.JUGGERNAUT, "count": 2, "interval": 3.4, "delay": 0.0, "lane": -1},
-				{"type": E.TANK, "count": 12, "interval": 0.88, "delay": 1.0, "lane": -1},
-				{"type": E.APC, "count": 12, "interval": 0.55, "delay": 2.8, "lane": -1},
+				{"type": E.APS_TANK, "count": 5, "interval": 1.6, "delay": 0.8, "lane": -1},
+				{"type": E.TANK, "count": 8, "interval": 0.88, "delay": 1.4, "lane": -1},
+				{"type": E.APC, "count": 10, "interval": 0.55, "delay": 2.8, "lane": -1},
 			],
 		},
 		{
 			"title": "DAY 11 — OVERWOUND TOYBOX",
 			"bonus": 210,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 3, "interval": 3.0, "delay": 0.0, "lane": -1},
-				{"type": E.BOMBER, "count": 8, "interval": 1.15, "delay": 1.2, "lane": 0},
-				{"type": E.CHOPPER, "count": 12, "interval": 0.60, "delay": 2.4, "lane": 0},
-				{"type": E.JEEP, "count": 20, "interval": 0.25, "delay": 3.6, "lane": -1},
+				{"type": E.JUGGERNAUT, "count": 2, "interval": 3.0, "delay": 0.0, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 4.2, "delay": 1.2, "lane": 0},
+				{"type": E.BOMBER, "count": 6, "interval": 1.15, "delay": 1.8, "lane": 0},
+				{"type": E.CHOPPER, "count": 10, "interval": 0.60, "delay": 2.4, "lane": 0},
+				{"type": E.JEEP, "count": 16, "interval": 0.25, "delay": 3.6, "lane": -1},
 			],
 		},
 		{
 			"title": "DAY 12 — OPERATION TINSEL STORM!",
 			"bonus": 500,
 			"groups": [
-				{"type": E.JUGGERNAUT, "count": 5, "interval": 2.6, "delay": 0.0, "lane": -1},
-				{"type": E.TANK, "count": 16, "interval": 0.72, "delay": 1.0, "lane": -1},
-				{"type": E.BOMBER, "count": 10, "interval": 1.08, "delay": 1.8, "lane": 0},
-				{"type": E.CHOPPER, "count": 14, "interval": 0.52, "delay": 3.0, "lane": 0},
-				{"type": E.APC, "count": 14, "interval": 0.48, "delay": 4.2, "lane": -1},
+				{"type": E.JUGGERNAUT, "count": 4, "interval": 2.6, "delay": 0.0, "lane": -1},
+				{"type": E.SKY_FORTRESS, "count": 2, "interval": 4.0, "delay": 1.4, "lane": 0},
+				{"type": E.APS_TANK, "count": 6, "interval": 1.3, "delay": 0.8, "lane": -1},
+				{"type": E.UAV_CARRIER, "count": 4, "interval": 2.4, "delay": 1.8, "lane": -1},
+				{"type": E.TANK, "count": 12, "interval": 0.72, "delay": 1.2, "lane": -1},
+				{"type": E.BOMBER, "count": 8, "interval": 1.08, "delay": 2.0, "lane": 0},
 			],
 		},
 	]
@@ -823,6 +866,100 @@ static func get_red_centre_waves() -> Array[Dictionary]:
 	]
 	return _build_campaign_waves(22, 1.34, titles)
 
+static func get_coral_atoll_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"BEACHHEAD SCOUTS", "SURF LINE PROBE", "PALM CAUSEWAY PUSH", "CORAL ARMOR",
+		"TROPICAL GUNSHIPS", "LAGOON PINCER", "MONSOON AIR WING", "ATOLL PHALANX",
+		"REEF BREAKER", "TIDAL STAMPEDE", "TWIN SANDBAR TITANS", "PACIFIC SORTIE",
+		"ISLAND SIEGE", "TYPHOON THUNDER", "TURQUOISE HAMMER", "SEAWALL ASSAULT",
+		"TROPIC DIVISION", "CYCLONE OVERRUN", "CORAL VANGUARD", "TRADEWIND ARMADA",
+		"IRON LAGOON", "PACIFIC TEMPEST", "OPERATION TIDAL WAVE"
+	]
+	return _build_campaign_waves(23, 1.44, titles)
+
+static func get_obsidian_caldera_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"ASHFALL SCOUTS", "CINDER RIDGE PROBE", "BASALT CONVOY", "MAGMA ARMOR",
+		"THERMAL GUNSHIPS", "LAVA BRIDGE PINCER", "SCORCHED AIR WING", "CALDERA PHALANX",
+		"OBSIDIAN BREAKER", "PYROCLASTIC RUSH", "TWIN MOLTEN TITANS", "VOLCANO SORTIE",
+		"CRATER RIM SIEGE", "BRIMSTONE THUNDER", "SLAG HAMMER", "FORGE ASSAULT",
+		"INFERNO DIVISION", "ERUPTION OVERRUN", "MAGMA VANGUARD", "ASHSTORM ARMADA",
+		"IRON CALDERA", "MOLTEN FURY", "DOOMSDAY VENT", "OPERATION HELLFIRE"
+	]
+	return _build_campaign_waves(24, 1.54, titles)
+
+static func get_bayou_delta_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"MARSHLAND SCOUTS", "FOGGY TRAIL PROBE", "CAUSEWAY COLUMN", "PEAT BOG ARMOR",
+		"SWAMP GUNSHIPS", "BAYOU BRIDGE PINCER", "NIGHTMIST AIR WING", "CYPRESS PHALANX",
+		"DELTA BREAKER", "ALLIGATOR RUSH", "TWIN MIRE TITANS", "TWILIGHT SORTIE",
+		"SINKHOLE SIEGE", "BAYOU THUNDER", "QUAGMIRE HAMMER", "BOARDWALK ASSAULT",
+		"WETLAND DIVISION", "BLACKWATER OVERRUN", "MARSH VANGUARD", "FIREFLY ARMADA",
+		"IRON BAYOU", "MISTY TEMPEST", "DEEP SWAMP FURY", "DELTA STORM", "OPERATION HIGH WATER"
+	]
+	return _build_campaign_waves(25, 1.64, titles)
+
+static func get_neon_tokyo_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"CYBER RECON", "EXPRESSWAY PROBE", "NEON GRID CONVOY", "CHROME ARMOR",
+		"SKYLINE GUNSHIPS", "NEO-CANAL PINCER", "HOLOGRAM AIR WING", "MEGACITY PHALANX",
+		"SHIBUYA BREAKER", "OVERDRIVE BLITZ", "TWIN MECHA TITANS", "MIDNIGHT SORTIE",
+		"TOWER BLOCK SIEGE", "ACID RAIN THUNDER", "PLASMA HAMMER", "SYNDICATE ASSAULT",
+		"CYBER DIVISION", "BLACKOUT OVERRUN", "NEON VANGUARD", "SKYNET ARMADA",
+		"IRON METROPOLIS", "VOLTAGE TEMPEST", "CHROME FURY", "GHOST PROTOCOL",
+		"HYPERDRIVE PUSH", "OPERATION ZERO HOUR"
+	]
+	return _build_campaign_waves(26, 1.75, titles)
+
+static func get_tranquility_crater_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"LUNAR ROVERS", "REGOLITH PROBE", "CRATER RIM CONVOY", "LOW-G ARMOR",
+		"ORBITAL GUNSHIPS", "RILLE TRUSS PINCER", "VACUUM AIR WING", "TRANQUILITY PHALANX",
+		"APOLLO BREAKER", "DUST CLOUD BLITZ", "TWIN CRATER TITANS", "ECLIPSE SORTIE",
+		"MARE SIEGE", "SILENT THUNDER", "METEOR HAMMER", "MOONBASE ASSAULT",
+		"LUNAR DIVISION", "DARKSIDE OVERRUN", "SELENITE VANGUARD", "STARLIGHT ARMADA",
+		"IRON CRATER", "SOLAR FLARE", "ZERO-G FURY", "DEEP RILLE STORM",
+		"ORBITAL DROP", "APOGEE PUSH", "OPERATION MOONFALL"
+	]
+	return _build_campaign_waves(27, 1.86, titles)
+
+static func get_olympus_rift_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"MARTIAN SCOUTS", "RED CANYON PROBE", "FREIGHTWAY CONVOY", "VERMILION ARMOR",
+		"DUSTSTORM GUNSHIPS", "VIADUCT PINCER", "ARES AIR WING", "OLYMPUS PHALANX",
+		"MARINERIS BREAKER", "RED DUST BLITZ", "TWIN CANYON TITANS", "PHOBOS SORTIE",
+		"RIFT VALLEY SIEGE", "MARTIAN THUNDER", "IRON OXIDE HAMMER", "COLONY ASSAULT",
+		"RED PLANET DIVISION", "SANDSTORM OVERRUN", "ARES VANGUARD", "ORBITAL ARMADA",
+		"IRON RIFT", "SOLAR TEMPEST", "OLYMPUS FURY", "DEIMOS DROP",
+		"DRY-ICE STORM", "CRIMSON TIDE", "MARTIAN CRUSADE", "OPERATION RED PLANET"
+	]
+	return _build_campaign_waves(28, 1.98, titles)
+
+static func get_europa_abyss_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"CRYO SCOUTS", "LINEAE PROBE", "ICE SHELL CONVOY", "SUB-ZERO ARMOR",
+		"JOVIAN GUNSHIPS", "FISSURE SPAN PINCER", "ABYSSAL AIR WING", "EUROPA PHALANX",
+		"GLACIER BREAKER", "FROSTQUAKE BLITZ", "TWIN CRYO TITANS", "GANYMEDE SORTIE",
+		"TECTONIC SIEGE", "JOVIAN THUNDER", "PERMAFROST HAMMER", "OUTPOST ASSAULT",
+		"CRYO DIVISION", "WHITEOUT OVERRUN", "EUROPA VANGUARD", "ICE MOON ARMADA",
+		"IRON FISSURE", "TIDAL FLEX", "ABSOLUTE ZERO", "DEEP OCEAN STORM",
+		"JUPITER ECLIPSE", "CRYO VORTEX", "SUBSURFACE FURY", "JOVIAN CRUSADE", "OPERATION DEEP FREEZE"
+	]
+	return _build_campaign_waves(29, 2.12, titles)
+
+static func get_xenon_prime_waves() -> Array[Dictionary]:
+	var titles: Array[String] = [
+		"EXOPLANET SCOUTS", "CRYSTAL TRAIL PROBE", "NEBULA CONVOY", "XENO-ALLOY ARMOR",
+		"STARFIRE GUNSHIPS", "PLASMA SPAN PINCER", "VOID AIR WING", "XENON PHALANX",
+		"SPIRE BREAKER", "WARP SPEED BLITZ", "TWIN PLASMA TITANS", "SUPERNOVA SORTIE",
+		"LEY-LINE SIEGE", "COSMIC THUNDER", "QUASAR HAMMER", "STARPORT ASSAULT",
+		"GALACTIC DIVISION", "ECLIPSE OVERRUN", "XENON VANGUARD", "DEEP SPACE ARMADA",
+		"IRON EXOPLANET", "ION TEMPEST", "CRYSTAL FURY", "SINGULARITY WAVE",
+		"NEBULA STORM", "HYPERNOVA PUSH", "STARFORGE TITAN", "VOID CONVERGENCE",
+		"FINAL FRONTIER", "OPERATION XENON OMEGA"
+	]
+	return _build_campaign_waves(30, 2.28, titles)
+
 static func _build_campaign_waves(count: int, intensity: float, titles: Array[String]) -> Array[Dictionary]:
 	var E := EnemyData.EnemyType
 	var out: Array[Dictionary] = []
@@ -851,11 +988,12 @@ static func _build_campaign_waves(count: int, intensity: float, titles: Array[St
 		elif w_num == count:
 			# Epic multi-domain final wave!
 			bonus = int(round(420.0 * intensity))
-			groups.append({"type": E.JUGGERNAUT, "count": int(round(6 * intensity)), "interval": 2.4 * pace, "delay": 0.0, "lane": -1})
-			groups.append({"type": E.TANK, "count": int(round(18 * intensity)), "interval": 0.65 * pace, "delay": 0.8, "lane": -1})
-			groups.append({"type": E.BOMBER, "count": int(round(11 * intensity)), "interval": 0.98 * pace, "delay": 1.6, "lane": 0})
-			groups.append({"type": E.CHOPPER, "count": int(round(15 * intensity)), "interval": 0.48 * pace, "delay": 2.8, "lane": 0})
-			groups.append({"type": E.JEEP, "count": int(round(22 * intensity)), "interval": 0.22 * pace, "delay": 4.0, "lane": -1})
+			groups.append({"type": E.JUGGERNAUT, "count": int(round(4 * intensity)), "interval": 2.4 * pace, "delay": 0.0, "lane": -1})
+			groups.append({"type": E.SKY_FORTRESS, "count": maxi(2, int(round(2.0 * intensity))), "interval": 3.8 * pace, "delay": 1.4, "lane": 0})
+			groups.append({"type": E.APS_TANK, "count": maxi(4, int(round(6.0 * intensity))), "interval": 1.25 * pace, "delay": 0.6, "lane": -1})
+			groups.append({"type": E.UAV_CARRIER, "count": maxi(3, int(round(3.5 * intensity))), "interval": 2.2 * pace, "delay": 1.8, "lane": -1})
+			groups.append({"type": E.TANK, "count": int(round(12 * intensity)), "interval": 0.65 * pace, "delay": 0.8, "lane": -1})
+			groups.append({"type": E.BOMBER, "count": int(round(8 * intensity)), "interval": 0.98 * pace, "delay": 1.6, "lane": 0})
 		else:
 			var pattern: int = w_num % 5
 			var scale: float = intensity * (1.0 + float(w_num - 5) * 0.075)
@@ -865,29 +1003,33 @@ static func _build_campaign_waves(count: int, intensity: float, titles: Array[St
 				groups.append({"type": E.TANK, "count": maxi(5, int(round(6.0 * scale))), "interval": 1.10 * pace, "delay": 0.5, "lane": 1})
 				groups.append({"type": E.JEEP, "count": int(round(14.0 * scale)), "interval": 0.34 * pace, "delay": 2.5, "lane": -1})
 			elif pattern == 2:
-				# Heavy air wing + mechanized push
+				# Heavy air wing + UAV carriers
 				groups.append({"type": E.CHOPPER, "count": int(round(8.0 * scale)), "interval": 0.80 * pace, "delay": 0.0, "lane": 0})
 				groups.append({"type": E.BOMBER, "count": maxi(3, int(round(4.5 * scale))), "interval": 1.55 * pace, "delay": 1.2, "lane": 0})
-				groups.append({"type": E.APC, "count": int(round(11.0 * scale)), "interval": 0.62 * pace, "delay": 2.0, "lane": -1})
-			elif pattern == 3:
-				# Armor + Bomber division
-				groups.append({"type": E.TANK, "count": int(round(11.0 * scale)), "interval": 0.90 * pace, "delay": 0.0, "lane": -1})
-				groups.append({"type": E.BOMBER, "count": maxi(4, int(round(5.5 * scale))), "interval": 1.40 * pace, "delay": 1.6, "lane": 0})
+				groups.append({"type": E.UAV_CARRIER, "count": maxi(2, int(round(2.2 * scale))), "interval": 2.8 * pace, "delay": 1.4, "lane": -1})
 				if w_num >= 12:
-					groups.append({"type": E.JUGGERNAUT, "count": maxi(2, int(round(2.0 * scale))), "interval": 3.0 * pace, "delay": 0.6, "lane": -1})
+					groups.append({"type": E.SKY_FORTRESS, "count": maxi(1, int(round(1.0 * intensity))), "interval": 4.2 * pace, "delay": 2.0, "lane": 0})
+			elif pattern == 3:
+				# APS Armor + Bomber division
+				groups.append({"type": E.APS_TANK, "count": maxi(3, int(round(4.0 * scale))), "interval": 1.65 * pace, "delay": 0.0, "lane": -1})
+				groups.append({"type": E.TANK, "count": int(round(8.0 * scale)), "interval": 0.90 * pace, "delay": 0.8, "lane": -1})
+				groups.append({"type": E.BOMBER, "count": maxi(4, int(round(5.0 * scale))), "interval": 1.40 * pace, "delay": 1.6, "lane": 0})
+				if w_num >= 12:
+					groups.append({"type": E.JUGGERNAUT, "count": maxi(2, int(round(1.8 * scale))), "interval": 3.0 * pace, "delay": 0.6, "lane": -1})
 			elif pattern == 4:
 				# Juggernaut siege wave!
 				var jugs: int = 1 if w_num < 11 else (2 if w_num < 15 else int(round(3.0 * intensity + float(w_num - 15) * 0.45)))
 				groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 2.8 * pace, "delay": 0.0, "lane": -1})
-				groups.append({"type": E.TANK, "count": int(round(9.0 * scale)), "interval": 0.95 * pace, "delay": 1.0, "lane": -1})
-				groups.append({"type": E.CHOPPER, "count": int(round(8.5 * scale)), "interval": 0.72 * pace, "delay": 2.4, "lane": 0})
+				groups.append({"type": E.APS_TANK, "count": maxi(2, int(round(3.0 * scale))), "interval": 1.6 * pace, "delay": 0.8, "lane": -1})
+				groups.append({"type": E.TANK, "count": int(round(7.0 * scale)), "interval": 0.95 * pace, "delay": 1.2, "lane": -1})
+				groups.append({"type": E.CHOPPER, "count": int(round(8.0 * scale)), "interval": 0.72 * pace, "delay": 2.4, "lane": 0})
 			else:
-				# High-speed blitz + heavy bombers
-				groups.append({"type": E.JEEP, "count": int(round(20.0 * scale)), "interval": 0.25 * pace, "delay": 0.0, "lane": -1})
-				groups.append({"type": E.BOMBER, "count": maxi(5, int(round(6.5 * scale))), "interval": 1.25 * pace, "delay": 1.0, "lane": 0})
-				groups.append({"type": E.APC, "count": int(round(12.0 * scale)), "interval": 0.48 * pace, "delay": 2.4, "lane": -1})
+				# High-speed blitz + heavy bombers + air boss
+				groups.append({"type": E.JEEP, "count": int(round(18.0 * scale)), "interval": 0.25 * pace, "delay": 0.0, "lane": -1})
+				groups.append({"type": E.BOMBER, "count": maxi(5, int(round(6.0 * scale))), "interval": 1.25 * pace, "delay": 1.0, "lane": 0})
+				groups.append({"type": E.UAV_CARRIER, "count": maxi(2, int(round(2.5 * scale))), "interval": 2.5 * pace, "delay": 1.8, "lane": -1})
 				if w_num >= 14:
-					groups.append({"type": E.JUGGERNAUT, "count": maxi(2, int(round(2.5 * intensity))), "interval": 3.0 * pace, "delay": 0.8, "lane": -1})
+					groups.append({"type": E.SKY_FORTRESS, "count": maxi(1, int(round(1.5 * intensity))), "interval": 4.0 * pace, "delay": 0.8, "lane": 0})
 
 		out.append({
 			"title": title,

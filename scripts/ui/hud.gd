@@ -15,6 +15,8 @@ signal restart_requested()
 signal upgrade_requested()
 signal target_mode_requested()
 signal sell_requested()
+signal drone_hold_toggled()
+signal drone_assign_requested()
 
 const COL_BG := Color(0.08, 0.10, 0.09, 0.90)
 const COL_BG_DARK := Color(0.05, 0.06, 0.06, 0.94)
@@ -46,16 +48,29 @@ var _insp_stats: Label
 var _insp_upgrade_btn: Button
 var _insp_target_btn: Button
 var _insp_sell_btn: Button
+var _insp_drone_row: HBoxContainer
+var _insp_drone_hold_btn: Button
+var _insp_drone_assign_btn: Button
 
 var _banner_panel: PanelContainer
 var _banner_label: Label
 var _banner_timer: float = 0.0
+
+const SECTORS_PER_PAGE: int = 8
 
 var _menu_overlay: ColorRect
 var _menu_title: Label
 var _menu_sub: Label
 var _menu_brief: Label
 var _selected_map_id: String = "iron_valley"
+var _all_maps: Array[Dictionary] = []
+var _sector_page: int = 0
+var _sector_page_count: int = 1
+var _sector_grid: GridContainer
+var _sector_page_label: Label
+var _sector_prev_btn: Button
+var _sector_next_btn: Button
+var _sector_page_btns: Array[Button] = []
 var _sector_btns: Dictionary = {}
 var _selected_diff: WaveData.Difficulty = WaveData.Difficulty.NORMAL
 var _diff_btns: Dictionary = {}
@@ -102,11 +117,11 @@ func _style_button(btn: Button, accent: Color = COL_BORDER, bg: Color = Color(0.
 	btn.add_theme_color_override("font_disabled_color", Color(0.45, 0.48, 0.45))
 	btn.focus_mode = Control.FOCUS_NONE
 
-func _style_button_cached(btn: Button, state_key: String, accent: Color = COL_BORDER, bg: Color = Color(0.12, 0.15, 0.13, 0.95), font_col: Color = COL_TEXT) -> void:
+func _style_button_cached(btn: Button, state_key: String, accent: Color = COL_BORDER, bg: Color = Color(0.12, 0.15, 0.13, 0.95), font_col: Color = COL_TEXT, pad_x: int = 10, pad_y: int = 6) -> void:
 	if _btn_style_cache.get(btn, "") == state_key:
 		return
 	_btn_style_cache[btn] = state_key
-	_style_button(btn, accent, bg)
+	_style_button(btn, accent, bg, pad_x, pad_y)
 	btn.add_theme_color_override("font_color", font_col)
 
 func _build_ui() -> void:
@@ -232,20 +247,20 @@ func _build_bottom_dock() -> void:
 	dock.offset_right = 10
 	dock.offset_top = -92
 	dock.offset_bottom = -10
-	dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 10, 8))
+	dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 6, 7))
 	_root.add_child(dock)
 
 	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 8)
+	hbox.add_theme_constant_override("separation", 4)
 	dock.add_child(hbox)
 
 	for t_type in TurretData.get_all_types():
 		var cfg := TurretData.get_config(t_type)
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(118, 66)
-		btn.text = "[%s] %s\n$%d  •  %s" % [cfg["hotkey"], cfg["short"], int(cfg["base_cost"]), cfg["role"]]
-		btn.add_theme_font_size_override("font_size", 12)
-		_style_button(btn, cfg["accent"])
+		btn.custom_minimum_size = Vector2(86, 66)
+		btn.text = "[%s] %s\n$%d\n%s" % [cfg["hotkey"], cfg["short"], int(cfg["base_cost"]), cfg["role"]]
+		btn.add_theme_font_size_override("font_size", 10)
+		_style_button(btn, cfg["accent"], Color(0.12, 0.15, 0.13, 0.95), 4, 3)
 		btn.pressed.connect(func(): turret_card_selected.emit(t_type))
 		hbox.add_child(btn)
 		_turret_btns[t_type] = btn
@@ -255,10 +270,10 @@ func _build_bottom_dock() -> void:
 
 	# Hellfire Air Strike slot — matches adjacent card height flush, with integrated cooldown strip
 	_airstrike_btn = Button.new()
-	_airstrike_btn.custom_minimum_size = Vector2(124, 66)
+	_airstrike_btn.custom_minimum_size = Vector2(96, 66)
 	_airstrike_btn.text = "[Q] AIR STRIKE\nREADY"
-	_airstrike_btn.add_theme_font_size_override("font_size", 12)
-	_style_button(_airstrike_btn, COL_RED, Color(0.22, 0.10, 0.08, 0.95))
+	_airstrike_btn.add_theme_font_size_override("font_size", 10)
+	_style_button(_airstrike_btn, COL_RED, Color(0.22, 0.10, 0.08, 0.95), 5, 4)
 	_airstrike_btn.pressed.connect(func(): airstrike_requested.emit())
 	hbox.add_child(_airstrike_btn)
 
@@ -279,10 +294,10 @@ func _build_bottom_dock() -> void:
 
 	# Next Wave button
 	_next_wave_btn = Button.new()
-	_next_wave_btn.custom_minimum_size = Vector2(118, 66)
+	_next_wave_btn.custom_minimum_size = Vector2(94, 66)
 	_next_wave_btn.text = "[N] START\nWAVE 1"
-	_next_wave_btn.add_theme_font_size_override("font_size", 12)
-	_style_button(_next_wave_btn, COL_GREEN, Color(0.10, 0.20, 0.12, 0.95))
+	_next_wave_btn.add_theme_font_size_override("font_size", 10)
+	_style_button(_next_wave_btn, COL_GREEN, Color(0.10, 0.20, 0.12, 0.95), 5, 4)
 	_next_wave_btn.pressed.connect(func(): next_wave_requested.emit())
 	hbox.add_child(_next_wave_btn)
 
@@ -339,6 +354,27 @@ func _build_inspector() -> void:
 	_insp_sell_btn.pressed.connect(func(): sell_requested.emit())
 	btn_row.add_child(_insp_sell_btn)
 
+	# Drone Pad tactical command row (visible only when a Drone Pad is inspected)
+	_insp_drone_row = HBoxContainer.new()
+	_insp_drone_row.add_theme_constant_override("separation", 6)
+	_insp_drone_row.visible = false
+	vbox.add_child(_insp_drone_row)
+
+	_insp_drone_hold_btn = Button.new()
+	_insp_drone_hold_btn.custom_minimum_size = Vector2(124, 24)
+	_insp_drone_hold_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_insp_drone_hold_btn, COL_AMBER, Color(0.12, 0.15, 0.13, 0.95), 8, 3)
+	_insp_drone_hold_btn.pressed.connect(func(): drone_hold_toggled.emit())
+	_insp_drone_row.add_child(_insp_drone_hold_btn)
+
+	_insp_drone_assign_btn = Button.new()
+	_insp_drone_assign_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_insp_drone_assign_btn.custom_minimum_size = Vector2(0, 24)
+	_insp_drone_assign_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_insp_drone_assign_btn, Color(0.56, 0.90, 0.30), Color(0.12, 0.22, 0.12, 0.95), 8, 3)
+	_insp_drone_assign_btn.pressed.connect(func(): drone_assign_requested.emit())
+	_insp_drone_row.add_child(_insp_drone_assign_btn)
+
 func _build_menu_overlay() -> void:
 	_menu_overlay = ColorRect.new()
 	_menu_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -371,28 +407,66 @@ func _build_menu_overlay() -> void:
 	_menu_sub.add_theme_color_override("font_color", COL_MUTED)
 	vbox.add_child(_menu_sub)
 
-	var sector_title := Label.new()
-	sector_title.text = "SELECT SECTOR:"
-	sector_title.add_theme_font_size_override("font_size", 12)
-	sector_title.add_theme_color_override("font_color", COL_AMBER)
-	vbox.add_child(sector_title)
+	_all_maps = MapData.get_all_maps()
+	_sector_page_count = maxi(1, int(ceil(float(_all_maps.size()) / float(SECTORS_PER_PAGE))))
+	_sector_page = 0
 
-	var sector_grid := GridContainer.new()
-	sector_grid.columns = 4
-	sector_grid.add_theme_constant_override("h_separation", 8)
-	sector_grid.add_theme_constant_override("v_separation", 8)
-	vbox.add_child(sector_grid)
+	var sector_header := HBoxContainer.new()
+	sector_header.add_theme_constant_override("separation", 6)
+	vbox.add_child(sector_header)
 
-	for m in MapData.get_all_maps():
+	_sector_page_label = Label.new()
+	_sector_page_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sector_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_sector_page_label.add_theme_font_size_override("font_size", 12)
+	_sector_page_label.add_theme_color_override("font_color", COL_AMBER)
+	sector_header.add_child(_sector_page_label)
+
+	_sector_prev_btn = Button.new()
+	_sector_prev_btn.text = "< PREV"
+	_sector_prev_btn.custom_minimum_size = Vector2(66, 24)
+	_sector_prev_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_sector_prev_btn, COL_AMBER, Color(0.12, 0.14, 0.12, 0.95), 8, 2)
+	_sector_prev_btn.pressed.connect(func(): _set_sector_page(_sector_page - 1))
+	sector_header.add_child(_sector_prev_btn)
+
+	_sector_page_btns.clear()
+	for p_idx in range(_sector_page_count):
+		var pb := Button.new()
+		pb.text = "%d" % (p_idx + 1)
+		pb.custom_minimum_size = Vector2(28, 24)
+		pb.add_theme_font_size_override("font_size", 11)
+		_style_button(pb, COL_BORDER, Color(0.10, 0.12, 0.11, 0.94), 6, 2)
+		var target_p: int = p_idx
+		pb.pressed.connect(func(): _set_sector_page(target_p))
+		sector_header.add_child(pb)
+		_sector_page_btns.append(pb)
+
+	_sector_next_btn = Button.new()
+	_sector_next_btn.text = "NEXT >"
+	_sector_next_btn.custom_minimum_size = Vector2(66, 24)
+	_sector_next_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_sector_next_btn, COL_AMBER, Color(0.12, 0.14, 0.12, 0.95), 8, 2)
+	_sector_next_btn.pressed.connect(func(): _set_sector_page(_sector_page + 1))
+	sector_header.add_child(_sector_next_btn)
+
+	_sector_grid = GridContainer.new()
+	_sector_grid.columns = 4
+	_sector_grid.custom_minimum_size = Vector2(0, 100)
+	_sector_grid.add_theme_constant_override("h_separation", 8)
+	_sector_grid.add_theme_constant_override("v_separation", 8)
+	vbox.add_child(_sector_grid)
+
+	for m in _all_maps:
 		var mid: String = String(m["id"])
 		var b := Button.new()
-		b.text = "0%d %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
+		b.text = "%02d %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size = Vector2(0, 46)
 		b.add_theme_font_size_override("font_size", 11)
 		_style_button(b, COL_AMBER)
 		b.pressed.connect(func(): _select_sector(mid, true))
-		sector_grid.add_child(b)
+		_sector_grid.add_child(b)
 		_sector_btns[mid] = b
 
 	_menu_brief = Label.new()
@@ -424,7 +498,7 @@ func _build_menu_overlay() -> void:
 		_diff_btns[d] = b
 
 	var controls := Label.new()
-	controls.text = "CONTROLS:  [1-4] Select Turret  •  [LMB] Build / Inspect  •  [RMB/ESC] Cancel\n[Q] Hellfire Air Strike  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Pause"
+	controls.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB/ESC] Cancel\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Pause"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 11)
 	controls.add_theme_color_override("font_color", COL_MUTED)
@@ -450,14 +524,41 @@ func _build_menu_overlay() -> void:
 		hint_lbl.add_theme_color_override("font_color", Color(0.98, 0.44, 0.38, 0.92))
 		vbox.add_child(hint_lbl)
 
+	_set_sector_page(0)
 	_select_sector("iron_valley", false)
 	_select_difficulty(WaveData.Difficulty.NORMAL)
+
+func _set_sector_page(page_idx: int) -> void:
+	_sector_page = clampi(page_idx, 0, _sector_page_count - 1)
+	var start_i: int = _sector_page * SECTORS_PER_PAGE
+	var end_i: int = mini(_all_maps.size(), start_i + SECTORS_PER_PAGE)
+
+	for i in range(_all_maps.size()):
+		var mid: String = String(_all_maps[i]["id"])
+		var btn: Button = _sector_btns[mid]
+		btn.visible = (i >= start_i and i < end_i)
+
+	var theater: String = ""
+	if _sector_page == 0:
+		theater = "  •  EARTH THEATER"
+	elif _sector_page == 1:
+		theater = "  •  EXTREME & OFF-WORLD"
+	_sector_page_label.text = "SELECT SECTOR  —  PAGE %d / %d%s" % [_sector_page + 1, _sector_page_count, theater]
+
+	_sector_prev_btn.disabled = (_sector_page <= 0)
+	_sector_next_btn.disabled = (_sector_page >= _sector_page_count - 1)
+	for i in range(_sector_page_btns.size()):
+		var pb: Button = _sector_page_btns[i]
+		if i == _sector_page:
+			_style_button(pb, COL_AMBER, Color(0.20, 0.22, 0.14, 0.98), 6, 2)
+		else:
+			_style_button(pb, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92), 6, 2)
 
 func _select_sector(map_id: String, emit_signal: bool) -> void:
 	_selected_map_id = map_id
 	var m := MapData.get_map_by_id(map_id)
 	_menu_title.text = "DEFENCE ZONE: %s" % String(m["short_name"])
-	_menu_sub.text = "SECTOR 0%d  •  %s" % [int(m["index"]), String(m["tag"])]
+	_menu_sub.text = "SECTOR %02d  •  %s" % [int(m["index"]), String(m["tag"])]
 	_menu_brief.text = String(m["briefing"])
 
 	for key in _sector_btns.keys():
@@ -479,6 +580,22 @@ func _select_sector(map_id: String, emit_signal: bool) -> void:
 				accent = Color(0.24, 0.76, 0.42)
 			elif bname == "outback":
 				accent = Color(0.92, 0.44, 0.24)
+			elif bname == "tropical":
+				accent = Color(0.18, 0.88, 0.86)
+			elif bname == "volcanic":
+				accent = Color(1.0, 0.42, 0.14)
+			elif bname == "swamp":
+				accent = Color(0.54, 0.82, 0.32)
+			elif bname == "cyberpunk":
+				accent = Color(0.96, 0.24, 0.78)
+			elif bname == "moon":
+				accent = Color(0.84, 0.88, 0.94)
+			elif bname == "mars":
+				accent = Color(0.96, 0.46, 0.26)
+			elif bname == "europa":
+				accent = Color(0.32, 0.88, 1.0)
+			elif bname == "alien":
+				accent = Color(0.88, 0.32, 1.0)
 			_style_button(btn, accent, Color(0.18, 0.21, 0.16, 0.98))
 		else:
 			_style_button(btn, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
@@ -487,6 +604,10 @@ func _select_sector(map_id: String, emit_signal: bool) -> void:
 		sector_selected.emit(map_id)
 
 func select_sector_external(map_id: String) -> void:
+	for i in range(_all_maps.size()):
+		if String(_all_maps[i]["id"]) == map_id:
+			_set_sector_page(i / SECTORS_PER_PAGE)
+			break
 	_select_sector(map_id, false)
 
 func _select_difficulty(d: WaveData.Difficulty) -> void:
@@ -641,11 +762,11 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 		var affordable := cash >= cost
 		var selected: bool = (placing_type != null and placing_type == t_type)
 		if selected:
-			_style_button_cached(btn, "sel", Color.WHITE, Color(0.18, 0.26, 0.18, 0.98), COL_TEXT)
+			_style_button_cached(btn, "sel", Color.WHITE, Color(0.18, 0.26, 0.18, 0.98), COL_TEXT, 4, 3)
 		elif affordable:
-			_style_button_cached(btn, "ok", cfg["accent"], Color(0.11, 0.14, 0.12, 0.95), COL_TEXT)
+			_style_button_cached(btn, "ok", cfg["accent"], Color(0.11, 0.14, 0.12, 0.95), COL_TEXT, 4, 3)
 		else:
-			_style_button_cached(btn, "poor", Color(0.28, 0.24, 0.22), Color(0.09, 0.09, 0.09, 0.85), Color(0.55, 0.45, 0.42))
+			_style_button_cached(btn, "poor", Color(0.28, 0.24, 0.22), Color(0.09, 0.09, 0.09, 0.85), Color(0.55, 0.45, 0.42), 4, 3)
 
 	if airstrike_cd <= 0.0:
 		_airstrike_btn.disabled = false
@@ -656,7 +777,10 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 			_airstrike_btn,
 			"aim" if airstrike_aiming else "ready",
 			Color.WHITE if airstrike_aiming else COL_RED,
-			Color(0.36, 0.14, 0.10, 0.98) if airstrike_aiming else Color(0.22, 0.10, 0.08, 0.95)
+			Color(0.36, 0.14, 0.10, 0.98) if airstrike_aiming else Color(0.22, 0.10, 0.08, 0.95),
+			COL_TEXT,
+			5,
+			4
 		)
 	else:
 		_airstrike_btn.disabled = true
@@ -664,7 +788,7 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 		_airstrike_bar.visible = true
 		_airstrike_bar.value = pct
 		_airstrike_btn.text = "[Q] AIR STRIKE\nCD %ds" % int(ceil(airstrike_cd))
-		_style_button_cached(_airstrike_btn, "cd", COL_RED, Color(0.18, 0.09, 0.08, 0.90))
+		_style_button_cached(_airstrike_btn, "cd", COL_RED, Color(0.18, 0.09, 0.08, 0.90), COL_TEXT, 5, 4)
 
 	if all_launched:
 		_next_wave_btn.disabled = true
@@ -679,7 +803,7 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 		_next_wave_btn.disabled = true
 		_next_wave_btn.text = "WAVE %d\nINBOUND" % (next_wave_num - 1)
 
-func update_inspector(turret: Turret, cash: int) -> void:
+func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = false) -> void:
 	if turret == null or not is_instance_valid(turret):
 		_inspector_panel.visible = false
 		return
@@ -688,17 +812,36 @@ func update_inspector(turret: Turret, cash: int) -> void:
 	var st := turret.get_stats()
 	_insp_title.text = "%s  •  LV %d/4   |   KILLS: %d" % [String(cfg["name"]), turret.level + 1, turret.kills]
 
-	var extra := ""
-	if float(st["splash"]) > 0.0 and float(st["slow"]) > 0.0:
-		extra = "  SLOW %d%%" % int(round(float(st["slow"]) * 100.0))
-	elif float(st["splash"]) > 0.0:
-		extra = "  AOE %d" % int(round(float(st["splash"])))
-	_insp_stats.text = "DMG %.0f   RNG %.0f   ROF %.1f/s%s" % [
-		float(st["damage"]),
-		float(st["range"]),
-		float(st["fire_rate"]),
-		extra,
-	]
+	if turret.turret_type == TurretData.TurretType.LASER:
+		var base_dps: float = float(st["damage"])
+		var max_dps: float = base_dps * float(st.get("max_ramp", 2.2))
+		_insp_stats.text = "DPS %.0f-%.0f   RNG %.0f   100%% AP • APS x2" % [base_dps, max_dps, float(st["range"])]
+	elif turret.turret_type == TurretData.TurretType.MLRS:
+		_insp_stats.text = "SALVO %dx%.0f   RNG %.0f   BURN %.0f/s" % [
+			int(st.get("salvo_count", 3)),
+			float(st["damage"]),
+			float(st["range"]),
+			float(st.get("burn_dps", 14.0)),
+		]
+	elif turret.turret_type == TurretData.TurretType.DRONE:
+		_insp_stats.text = "UAV %.0fx%.1f/s   RADAR %.0f   [%s]" % [
+			float(st["damage"]),
+			float(st["fire_rate"]),
+			float(st["range"]),
+			turret.get_drone_status_label(),
+		]
+	else:
+		var extra := ""
+		if float(st["splash"]) > 0.0 and float(st["slow"]) > 0.0:
+			extra = "  SLOW %d%%" % int(round(float(st["slow"]) * 100.0))
+		elif float(st["splash"]) > 0.0:
+			extra = "  AOE %d" % int(round(float(st["splash"])))
+		_insp_stats.text = "DMG %.0f   RNG %.0f   ROF %.1f/s%s" % [
+			float(st["damage"]),
+			float(st["range"]),
+			float(st["fire_rate"]),
+			extra,
+		]
 
 	if turret.can_upgrade():
 		var up_cost := turret.get_upgrade_cost()
@@ -710,3 +853,29 @@ func update_inspector(turret: Turret, cash: int) -> void:
 
 	_insp_target_btn.text = "TGT: %s" % turret.get_target_mode_label()
 	_insp_sell_btn.text = "SELL +$%d" % turret.get_sell_value()
+
+	var is_drone := (turret.turret_type == TurretData.TurretType.DRONE)
+	_insp_drone_row.visible = is_drone
+	_inspector_panel.offset_top = -120 if is_drone else -92
+	if is_drone:
+		_insp_drone_hold_btn.text = "[H] MODE: HOLD" if turret.drone_hold_mode else "[H] MODE: AUTO"
+		_style_button_cached(
+			_insp_drone_hold_btn,
+			"hold" if turret.drone_hold_mode else "auto",
+			COL_AMBER if turret.drone_hold_mode else COL_BORDER,
+			Color(0.24, 0.19, 0.10, 0.96) if turret.drone_hold_mode else Color(0.12, 0.15, 0.13, 0.95),
+			COL_TEXT,
+			8,
+			3
+		)
+		var can_launch := turret.can_launch_drone()
+		_insp_drone_assign_btn.disabled = not can_launch
+		if drone_assign_aiming and can_launch:
+			_insp_drone_assign_btn.text = "CLICK HOSTILE..."
+			_style_button_cached(_insp_drone_assign_btn, "assign_aim", Color.WHITE, Color(0.18, 0.34, 0.14, 0.98), COL_TEXT, 8, 3)
+		elif can_launch:
+			_insp_drone_assign_btn.text = "[F] ASSIGN TARGET"
+			_style_button_cached(_insp_drone_assign_btn, "assign_ready", Color(0.56, 0.90, 0.30), Color(0.12, 0.22, 0.12, 0.95), COL_TEXT, 8, 3)
+		else:
+			_insp_drone_assign_btn.text = turret.get_drone_status_label()
+			_style_button_cached(_insp_drone_assign_btn, "assign_busy", COL_BORDER, Color(0.10, 0.12, 0.10, 0.85), COL_TEXT, 8, 3)

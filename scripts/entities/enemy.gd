@@ -3,6 +3,7 @@ extends Node2D
 
 signal died(enemy: Enemy, killer_turret: Node)
 signal reached_base(enemy: Enemy)
+signal spawn_sub_unit(enemy_type: EnemyData.EnemyType, from_pos: Vector2)
 
 var enemy_type: EnemyData.EnemyType = EnemyData.EnemyType.JEEP
 var config: Dictionary = {}
@@ -10,6 +11,10 @@ var config: Dictionary = {}
 var is_air: bool = false
 var max_hp: float = 100.0
 var hp: float = 100.0
+var max_shield: float = 0.0
+var shield: float = 0.0
+var shield_regen: float = 0.0
+var shield_regen_delay: float = 3.4
 var base_speed: float = 60.0
 var armor: float = 0.0
 var reward: int = 15
@@ -33,6 +38,12 @@ var _phase_seed: float = 0.0
 var _rotor_angle: float = 0.0
 var _smoke_timer: float = 0.0
 var _dust_timer: float = 0.0
+var _shield_delay_timer: float = 0.0
+var _shield_flash: float = 0.0
+var _uav_timer: float = 0.0
+var _uav_interval: float = 4.6
+var _uav_spawned: int = 0
+var _uav_max_spawns: int = 0
 var _fx: FxManager = null
 
 func setup(
@@ -53,9 +64,22 @@ func setup(
 	is_air = bool(config["is_air"])
 	max_hp = float(config["hp"]) * hp_mult
 	hp = max_hp
+	max_shield = float(config.get("shield", 0.0)) * hp_mult
+	shield = max_shield
+	shield_regen = float(config.get("shield_regen", 0.0)) * hp_mult
+	shield_regen_delay = float(config.get("shield_regen_delay", 3.4))
+	_shield_delay_timer = 0.0
+	_shield_flash = 0.0
+
+	_uav_interval = float(config.get("uav_spawn_interval", 4.6))
+	_uav_timer = float(config.get("uav_first_delay", 2.2))
+	_uav_max_spawns = int(config.get("uav_max_spawns", 0))
+	_uav_spawned = 0
+
 	base_speed = float(config["speed"]) * speed_mult
 	armor = float(config["armor"])
-	reward = maxi(1, int(round(float(config["reward"]) * reward_mult)))
+	var base_rew: int = int(config["reward"])
+	reward = 0 if base_rew <= 0 else maxi(1, int(round(float(base_rew) * reward_mult)))
 	lives_cost = int(config["lives_cost"])
 	hit_radius = float(config["radius"])
 
@@ -86,17 +110,36 @@ func apply_slow(amount: float, duration: float) -> void:
 	else:
 		slow_timer = maxf(slow_timer, duration * 0.85)
 
-func take_damage(raw_damage: float, armor_pierce: float, source_turret: Node = null) -> void:
+func take_damage(raw_damage: float, armor_pierce: float, source_turret: Node = null, shield_mult: float = 1.0) -> void:
 	if not alive:
 		return
+
+	var remaining_raw: float = raw_damage
+	if max_shield > 0.0:
+		_shield_delay_timer = shield_regen_delay
+		if shield > 0.0:
+			var shield_dmg: float = raw_damage * maxf(0.1, shield_mult)
+			_shield_flash = 0.16
+			if shield_dmg < shield:
+				shield -= shield_dmg
+				return
+			else:
+				remaining_raw = (shield_dmg - shield) / maxf(0.1, shield_mult)
+				shield = 0.0
+				if _fx != null:
+					_fx.spawn_shield_break(position, hit_radius + 10.0)
+
+	if remaining_raw <= 0.0:
+		return
 	var eff_armor: float = maxf(0.0, armor * (1.0 - clampf(armor_pierce, 0.0, 1.0)))
-	var final_dmg: float = maxf(1.0, raw_damage * (1.0 - eff_armor))
+	var final_dmg: float = maxf(0.2, remaining_raw * (1.0 - eff_armor))
 	hp -= final_dmg
 	hit_flash = 0.11
 	if hp <= 0.0:
 		hp = 0.0
 		alive = false
-		died.emit(self, source_turret)
+		var valid_source: Node = source_turret if is_instance_valid(source_turret) else null
+		died.emit(self, valid_source)
 		queue_free()
 
 func _process(delta: float) -> void:
@@ -111,6 +154,21 @@ func _process(delta: float) -> void:
 
 	if hit_flash > 0.0:
 		hit_flash = maxf(0.0, hit_flash - delta)
+	if _shield_flash > 0.0:
+		_shield_flash = maxf(0.0, _shield_flash - delta)
+	if max_shield > 0.0 and shield < max_shield:
+		if _shield_delay_timer > 0.0:
+			_shield_delay_timer = maxf(0.0, _shield_delay_timer - delta)
+		else:
+			shield = minf(max_shield, shield + shield_regen * delta)
+
+	# Mobile UAV Carrier periodically launches fast FPV/Shahed air drones!
+	if enemy_type == EnemyData.EnemyType.UAV_CARRIER and _uav_spawned < _uav_max_spawns:
+		_uav_timer -= delta
+		if _uav_timer <= 0.0:
+			_uav_timer = _uav_interval
+			_uav_spawned += 1
+			spawn_sub_unit.emit(EnemyData.EnemyType.FPV_DRONE, position)
 
 	_rotor_angle += delta * 29.0
 
@@ -201,6 +259,14 @@ func _draw() -> void:
 				_draw_toy_airship()
 			EnemyData.EnemyType.JUGGERNAUT:
 				_draw_toy_king_cracker()
+			EnemyData.EnemyType.APS_TANK:
+				_draw_toy_snowglobe_tank()
+			EnemyData.EnemyType.UAV_CARRIER:
+				_draw_toy_drone_sleigh()
+			EnemyData.EnemyType.FPV_DRONE:
+				_draw_toy_ornament_drone()
+			EnemyData.EnemyType.SKY_FORTRESS:
+				_draw_toy_zeppelin_boss()
 	else:
 		match enemy_type:
 			EnemyData.EnemyType.JEEP:
@@ -215,6 +281,14 @@ func _draw() -> void:
 				_draw_bomber(hull_col, trim_col)
 			EnemyData.EnemyType.JUGGERNAUT:
 				_draw_juggernaut(hull_col, trim_col)
+			EnemyData.EnemyType.APS_TANK:
+				_draw_aps_tank(hull_col, trim_col)
+			EnemyData.EnemyType.UAV_CARRIER:
+				_draw_uav_carrier(hull_col, trim_col)
+			EnemyData.EnemyType.FPV_DRONE:
+				_draw_fpv_drone(hull_col, trim_col)
+			EnemyData.EnemyType.SKY_FORTRESS:
+				_draw_sky_fortress(hull_col, trim_col)
 
 	_draw_damage_and_status()
 	_draw_health_bar()
@@ -752,6 +826,211 @@ func _draw_bomber(hull: Color, trim: Color) -> void:
 	draw_circle(_xf(Vector2(-9.5, -26.2)), 1.8, Color(1.0, 0.24, 0.20, strobe))
 	draw_circle(_xf(Vector2(-9.5, 26.2)), 1.8, Color(0.24, 1.0, 0.45, strobe))
 
+func _draw_aps_tank(hull: Color, trim: Color) -> void:
+	# Trophy APS Advanced Main Battle Tank with active radar panels & reactive hull
+	var sh := Vector2(6.2, 7.2)
+	var footprint: Array[Vector2] = [
+		Vector2(20.0, -14.2), Vector2(20.0, 14.2), Vector2(-20.0, 14.2), Vector2(-20.0, -14.2)
+	]
+	draw_colored_polygon(_poly(footprint, Vector2(1.8, 2.0)), Color(0.0, 0.0, 0.0, 0.50))
+	draw_colored_polygon(_poly(footprint, sh), Color(0.0, 0.0, 0.0, 0.34))
+
+	_draw_treads(20.5, 8.6, 14.2, 4.2)
+
+	# Composite spaced side skirts with cyan APS emitter strips
+	for side: float in [-1.0, 1.0]:
+		var y0: float = side * 8.6
+		var y1: float = side * 13.0
+		var skirt: Array[Vector2] = [
+			Vector2(18.0, minf(y0, y1)), Vector2(18.0, maxf(y0, y1)),
+			Vector2(-17.5, maxf(y0, y1)), Vector2(-17.5, minf(y0, y1))
+		]
+		_draw_bevel_poly(skirt, hull.darkened(0.16), Color(0.09, 0.12, 0.14))
+		draw_line(_xf(Vector2(11.0, side * 11.0)), _xf(Vector2(-9.0, side * 11.0)), Color(trim.r, trim.g, trim.b, 0.72 if shield > 0.0 else 0.24), 1.6, true)
+
+	# Angular stealth-faceted MBT hull
+	var core: Array[Vector2] = [
+		Vector2(19.5, -8.5), Vector2(14.0, -9.8), Vector2(-18.5, -9.5),
+		Vector2(-18.5, 9.5), Vector2(14.0, 9.8), Vector2(19.5, 8.5)
+	]
+	_draw_bevel_poly(core, hull, Color(0.10, 0.13, 0.15))
+
+	# Front glacis & cyan tactical trim
+	var glacis: Array[Vector2] = [Vector2(18.8, -7.8), Vector2(11.5, -8.6), Vector2(11.5, 8.6), Vector2(18.8, 7.8)]
+	draw_colored_polygon(_poly(glacis), hull.lightened(0.14))
+	draw_line(_xf(Vector2(14.5, -7.5)), _xf(Vector2(14.5, 7.5)), trim, 1.8, true)
+
+	# Scanning wedge turret with Trophy APS radar array & smoothbore barrel
+	var sway: float = sin(_time * 1.55 + _phase_seed) * 0.20
+	var pivot := Vector2(1.5, 0.0)
+	var tur: Array[Vector2] = [
+		Vector2(13.0, -5.0), Vector2(5.5, -10.5), Vector2(-8.0, -9.8),
+		Vector2(-12.0, -5.8), Vector2(-12.0, 5.8), Vector2(-8.0, 9.8),
+		Vector2(5.5, 10.5), Vector2(13.0, 5.0)
+	]
+	draw_colored_polygon(_poly(tur, Vector2(2.6, 3.0), sway, pivot), Color(0.0, 0.0, 0.0, 0.36))
+
+	# Rail-shrouded heavy main gun
+	draw_line(_xf(Vector2(5.0, 0.0), sway, pivot), _xf(Vector2(29.5, 0.0), sway, pivot), Color(0.10, 0.12, 0.14), 5.4, true)
+	draw_line(_xf(Vector2(5.0, 0.0), sway, pivot), _xf(Vector2(28.5, 0.0), sway, pivot), hull.lightened(0.22), 2.8, true)
+	draw_line(_xf(Vector2(15.0, 0.0), sway, pivot), _xf(Vector2(21.5, 0.0), sway, pivot), Color(0.16, 0.22, 0.26), 6.4, true)
+
+	_draw_bevel_poly(tur, hull.lightened(0.12), Color(0.09, 0.12, 0.14), sway, pivot)
+	# Twin angled Trophy APS radar launchers on turret cheeks
+	for side: float in [-1.0, 1.0]:
+		var rad_box: Array[Vector2] = [
+			Vector2(2.5, side * 9.5), Vector2(2.5, side * 12.6),
+			Vector2(-4.5, side * 12.6), Vector2(-4.5, side * 9.5)
+		]
+		_draw_bevel_poly(rad_box, Color(0.20, 0.26, 0.30), Color(0.08, 0.10, 0.12), sway, pivot)
+		draw_circle(_xf(Vector2(-1.0, side * 11.0), sway, pivot), 1.8, trim if shield > 0.0 else Color(0.32, 0.36, 0.38))
+
+	# Central APS core emitter dome
+	var core_glow: float = 0.65 + 0.35 * sin(_time * 8.0 + _phase_seed)
+	draw_circle(_xf(Vector2(-2.0, 0.0), sway, pivot), 4.6, Color(0.12, 0.18, 0.22))
+	draw_circle(_xf(Vector2(-2.0, 0.0), sway, pivot), 2.8, Color(trim.r, trim.g, trim.b, (0.85 * core_glow) if shield > 0.0 else 0.25))
+
+func _draw_uav_carrier(hull: Color, trim: Color) -> void:
+	# Mobile 6x6 Armored UAV Launch Truck with catapult rails & stowed Shahed drones
+	var sh := Vector2(5.2, 6.0)
+	var body: Array[Vector2] = [
+		Vector2(18.5, -7.8), Vector2(15.0, -9.6), Vector2(-19.0, -9.6),
+		Vector2(-19.5, -7.5), Vector2(-19.5, 7.5), Vector2(-19.0, 9.6),
+		Vector2(15.0, 9.6), Vector2(18.5, 7.8)
+	]
+	draw_colored_polygon(_poly(body, Vector2(1.4, 1.8)), Color(0.0, 0.0, 0.0, 0.46))
+	draw_colored_polygon(_poly(body, sh), Color(0.0, 0.0, 0.0, 0.32))
+
+	# 6 heavy off-road truck tires
+	for wx: float in [-13.0, -3.5, 11.5]:
+		for wy: float in [-10.2, 10.2]:
+			var wbox: Array[Vector2] = [
+				Vector2(wx + 3.4, wy - 1.9), Vector2(wx + 3.4, wy + 1.9),
+				Vector2(wx - 3.4, wy + 1.9), Vector2(wx - 3.4, wy - 1.9)
+			]
+			draw_colored_polygon(_poly(wbox), Color(0.08, 0.08, 0.08))
+			draw_line(_xf(Vector2(wx - 1.4, wy)), _xf(Vector2(wx + 1.4, wy)), Color(0.28, 0.30, 0.26), 1.2, true)
+
+	_draw_bevel_poly(body, hull, Color(0.12, 0.14, 0.11))
+
+	# Forward armored truck cab + windshield
+	var cab: Array[Vector2] = [Vector2(17.8, -7.2), Vector2(17.8, 7.2), Vector2(7.0, 8.2), Vector2(7.0, -8.2)]
+	_draw_bevel_poly(cab, hull.lightened(0.10), Color(0.12, 0.14, 0.11))
+	draw_line(_xf(Vector2(15.2, -5.6)), _xf(Vector2(15.2, 5.6)), Color(0.36, 0.58, 0.66, 0.92), 2.8, true)
+
+	# Rear armored UAV canister rack & launch rail
+	var bay: Array[Vector2] = [Vector2(5.5, -8.5), Vector2(5.5, 8.5), Vector2(-18.2, 8.5), Vector2(-18.2, -8.5)]
+	_draw_bevel_poly(bay, Color(0.20, 0.23, 0.20), Color(0.10, 0.11, 0.10))
+	# Amber drone-bay warning chevrons
+	draw_line(_xf(Vector2(4.2, -7.5)), _xf(Vector2(4.2, 7.5)), trim, 2.2, true)
+	draw_line(_xf(Vector2(-17.0, -7.5)), _xf(Vector2(-17.0, 7.5)), trim, 2.2, true)
+
+	# Visible stowed delta-wing drones on launch rails (remaining count!)
+	var drones_left: int = maxi(0, _uav_max_spawns - _uav_spawned)
+	for side: float in [-1.0, 1.0]:
+		draw_line(_xf(Vector2(-15.5, side * 4.4)), _xf(Vector2(2.5, side * 4.4)), Color(0.42, 0.46, 0.40), 1.6, true)
+	if drones_left > 0:
+		var pulse: float = 0.55 + 0.45 * sin(_time * 9.0 + _phase_seed)
+		for slot_y: float in [-4.4, 4.4]:
+			if slot_y > 0.0 and drones_left < 2:
+				continue
+			var mini: Array[Vector2] = [
+				Vector2(1.5, slot_y), Vector2(-7.5, slot_y - 3.2),
+				Vector2(-5.5, slot_y), Vector2(-7.5, slot_y + 3.2)
+			]
+			_draw_bevel_poly(mini, Color(0.46, 0.48, 0.44), Color(0.14, 0.14, 0.12))
+			draw_circle(_xf(Vector2(1.0, slot_y)), 1.3, Color(1.0, 0.42, 0.18, pulse))
+
+	# Spin-scanning telemetry antenna on cab roof
+	var ant_p := _xf(Vector2(10.5, -4.5))
+	draw_circle(ant_p, 2.4, Color(0.14, 0.16, 0.14))
+	draw_line(ant_p, ant_p + Vector2.from_angle(_time * 4.0) * 5.2, trim, 1.5, true)
+
+func _draw_fpv_drone(hull: Color, trim: Color) -> void:
+	# Compact fast Shahed-style delta-wing loitering munition
+	var sh := Vector2(16.0, 20.0)
+	var delta_wing: Array[Vector2] = [
+		Vector2(11.5, 0.0), Vector2(-7.5, 10.2), Vector2(-9.5, 9.2),
+		Vector2(-6.5, 2.2), Vector2(-9.0, 0.0), Vector2(-6.5, -2.2),
+		Vector2(-9.5, -9.2), Vector2(-7.5, -10.2)
+	]
+	draw_colored_polygon(_poly(delta_wing, sh), Color(0.0, 0.0, 0.0, 0.18))
+	_draw_bevel_poly(delta_wing, hull, Color(0.10, 0.11, 0.10))
+	# Red warhead nosecone & wingtip fins
+	var nose: Array[Vector2] = [Vector2(11.5, 0.0), Vector2(4.5, 2.4), Vector2(4.5, -2.4)]
+	draw_colored_polygon(_poly(nose), trim)
+	# Rear pusher-prop blur
+	var prop_s: float = 4.2 * sin(_rotor_angle * 1.8)
+	draw_line(_xf(Vector2(-9.8, -prop_s)), _xf(Vector2(-9.8, prop_s)), Color(0.84, 0.86, 0.84, 0.8), 1.6, true)
+
+func _draw_sky_fortress(hull: Color, trim: Color) -> void:
+	# Massive Heavy Twin-Rotor Airborne Assault Gunship (Air Boss!)
+	var hover_bob: float = sin(_time * 3.0 + _phase_seed) * 1.6
+	var sh := Vector2(34.0 + hover_bob, 38.0 + hover_bob)
+
+	var fuselage: Array[Vector2] = [
+		Vector2(30.0, 0.0), Vector2(21.0, 7.8), Vector2(6.0, 10.5),
+		Vector2(-14.0, 9.8), Vector2(-29.0, 6.2), Vector2(-32.0, 0.0),
+		Vector2(-29.0, -6.2), Vector2(-14.0, -9.8), Vector2(6.0, -10.5),
+		Vector2(21.0, -7.8)
+	]
+	var heavy_wings: Array[Vector2] = [
+		Vector2(10.0, -28.0), Vector2(1.0, -29.5), Vector2(-9.0, -26.0),
+		Vector2(-9.0, 26.0), Vector2(1.0, 29.5), Vector2(10.0, 28.0)
+	]
+
+	# High-altitude cast shadow
+	draw_colored_polygon(_poly(fuselage, sh), Color(0.0, 0.0, 0.0, 0.24))
+	draw_colored_polygon(_poly(heavy_wings, sh), Color(0.0, 0.0, 0.0, 0.22))
+
+	# Heavy armored gunship stub wings with underwing pods & crimson stripes
+	_draw_bevel_poly(heavy_wings, hull.darkened(0.14), Color(0.09, 0.10, 0.12))
+	for side: float in [-1.0, 1.0]:
+		draw_line(_xf(Vector2(4.0, side * 18.0)), _xf(Vector2(-5.5, side * 18.0)), trim, 3.6, true)
+		# Heavy side autocannon barrels
+		draw_line(_xf(Vector2(6.0, side * 13.0)), _xf(Vector2(19.0, side * 13.0)), Color(0.12, 0.13, 0.14), 3.4, true)
+		draw_line(_xf(Vector2(6.0, side * 13.0)), _xf(Vector2(18.0, side * 13.0)), Color(0.55, 0.58, 0.62), 1.6, true)
+
+	# Armored heavy fuselage + dorsal spine + rear jet thrusters
+	_draw_bevel_poly(fuselage, hull, Color(0.09, 0.11, 0.13))
+	var spine: Array[Vector2] = [
+		Vector2(22.0, 0.0), Vector2(10.0, 6.5), Vector2(-22.0, 6.2),
+		Vector2(-26.0, 0.0), Vector2(-22.0, -6.2), Vector2(10.0, -6.5)
+	]
+	_draw_bevel_poly(spine, hull.lightened(0.11), Color(0.12, 0.14, 0.17))
+
+	# Crimson boss command chevron + armored cockpit glass
+	var chev: Array[Vector2] = [Vector2(12.0, 0.0), Vector2(3.0, -6.2), Vector2(-1.0, -6.2), Vector2(7.0, 0.0), Vector2(-1.0, 6.2), Vector2(3.0, 6.2)]
+	draw_colored_polygon(_poly(chev), trim)
+	var canopy: Array[Vector2] = [
+		Vector2(24.5, 0.0), Vector2(18.5, 4.4), Vector2(12.0, 3.8),
+		Vector2(10.5, 0.0), Vector2(12.0, -3.8), Vector2(18.5, -4.4)
+	]
+	draw_colored_polygon(_poly(canopy), Color(0.16, 0.30, 0.40, 0.96))
+	draw_line(_xf(Vector2(22.0, -1.2)), _xf(Vector2(14.0, -2.2)), Color(0.76, 0.94, 1.0, 0.82), 1.8, true)
+
+	# Glowing twin rear exhaust flames
+	var burn: float = 0.78 + 0.25 * sin(_time * 28.0 + _phase_seed)
+	for side: float in [-1.0, 1.0]:
+		var exhaust: Array[Vector2] = [
+			Vector2(-29.0, side * 4.5 - 2.2), Vector2(-29.0, side * 4.5 + 2.2), Vector2(-29.0 - 11.5 * burn, side * 4.5)
+		]
+		draw_colored_polygon(_poly(exhaust), Color(1.0, 0.48, 0.14, 0.85))
+
+	# Giant twin counter-rotating tilt-rotors mounted on wingtips!
+	for side: float in [-1.0, 1.0]:
+		var hub: Vector2 = _xf(Vector2(1.5, side * 26.0))
+		draw_circle(hub, 17.5, Color(0.14, 0.17, 0.20, 0.16))
+		draw_arc(hub, 17.2, 0.0, TAU, 32, Color(0.72, 0.78, 0.82, 0.20), 1.4, true)
+		var dir_sign: float = 1.0 if side > 0.0 else -1.0
+		for b in range(4):
+			var a: float = _rotor_angle * dir_sign + float(b) * (PI * 0.5)
+			var bd := Vector2.from_angle(a)
+			draw_line(hub + bd * 2.5, hub + bd * 17.8, Color(0.10, 0.11, 0.13, 0.86), 2.5, true)
+			draw_line(hub + bd * 14.5, hub + bd * 17.8, Color(0.95, 0.76, 0.22, 0.86), 2.2, true)
+		draw_circle(hub, 4.2, Color(0.22, 0.25, 0.28))
+		draw_circle(hub, 1.8, trim)
+
 func _draw_damage_and_status() -> void:
 	var hp_ratio: float = hp / maxf(1.0, max_hp)
 	if not festive_mode:
@@ -771,12 +1050,28 @@ func _draw_damage_and_status() -> void:
 	if slow_timer > 0.0:
 		draw_arc(Vector2.ZERO, hit_radius + 2.0, 0.0, TAU, 24, Color(0.50, 0.92, 1.0, 0.68), 1.6, true)
 
+	# Trophy APS Active Protection electromagnetic intercept dome
+	if max_shield > 0.0 and shield > 0.0:
+		var s_ratio: float = clampf(shield / maxf(1.0, max_shield), 0.0, 1.0)
+		var pulse: float = 0.72 + 0.28 * sin(_time * 7.0 + _phase_seed)
+		var dome_r: float = hit_radius + 5.5
+		var flash_boost: float = clampf(_shield_flash / 0.16, 0.0, 1.0)
+		var fill_a: float = (0.09 + 0.08 * s_ratio) * pulse + flash_boost * 0.24
+		var edge_a: float = (0.45 + 0.42 * s_ratio) * pulse + flash_boost * 0.35
+		draw_circle(Vector2.ZERO, dome_r, Color(0.24, 0.84, 1.0, fill_a))
+		draw_arc(Vector2.ZERO, dome_r, 0.0, TAU, 32, Color(0.42, 0.92, 1.0, minf(1.0, edge_a)), 1.9 + flash_boost * 1.4, true)
+		# Rotating APS radar intercept arcs
+		for i in range(3):
+			var a: float = _time * 2.1 + float(i) * (TAU / 3.0)
+			draw_arc(Vector2.ZERO, dome_r + 2.5, a, a + 0.42, 6, Color(0.72, 0.96, 1.0, 0.72 * s_ratio), 1.5, true)
+
 func _draw_health_bar() -> void:
-	if hp >= max_hp and enemy_type != EnemyData.EnemyType.JUGGERNAUT:
+	var is_boss: bool = (enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
+	var has_shield_vis: bool = (max_shield > 0.0 and (shield > 0.0 or shield < max_shield))
+	if hp >= max_hp and not is_boss and not has_shield_vis:
 		return
 	var ratio: float = clampf(hp / maxf(1.0, max_hp), 0.0, 1.0)
-	var is_boss: bool = (enemy_type == EnemyData.EnemyType.JUGGERNAUT)
-	var bar_w: float = 46.0 if is_boss else 28.0
+	var bar_w: float = 48.0 if is_boss else 30.0
 	var bar_h: float = 5.2 if is_boss else 3.8
 	var bar_pos := Vector2(-bar_w * 0.5, -hit_radius - 13.0)
 
@@ -791,6 +1086,16 @@ func _draw_health_bar() -> void:
 	draw_rect(Rect2(bar_pos, Vector2(bar_w * ratio, bar_h)), fill_col)
 	# Subtle top highlight sheen on HP bar
 	draw_rect(Rect2(bar_pos, Vector2(bar_w * ratio, bar_h * 0.35)), Color(1.0, 1.0, 1.0, 0.22))
+
+	# Cyan APS Shield bar stacked right above HP bar
+	if max_shield > 0.0:
+		var s_ratio: float = clampf(shield / maxf(1.0, max_shield), 0.0, 1.0)
+		var s_pos := bar_pos + Vector2(0.0, -4.6)
+		draw_rect(Rect2(s_pos - Vector2(1.2, 1.2), Vector2(bar_w + 2.4, 5.0)), Color(0.03, 0.06, 0.08, 0.90))
+		draw_rect(Rect2(s_pos, Vector2(bar_w, 2.6)), Color(0.10, 0.18, 0.22, 0.85))
+		if s_ratio > 0.0:
+			draw_rect(Rect2(s_pos, Vector2(bar_w * s_ratio, 2.6)), Color(0.32, 0.88, 1.0, 0.96))
+
 	if slow_timer > 0.0:
 		draw_rect(Rect2(bar_pos + Vector2(0.0, bar_h + 1.8), Vector2(bar_w * clampf(slow_timer / 3.0, 0.15, 1.0), 1.8)), Color(0.42, 0.88, 1.0, 0.92))
 
@@ -1118,3 +1423,95 @@ func _draw_toy_king_cracker() -> void:
 		star.append(_xf(Vector2(-1.0 + cos(sa) * sr, sin(sa) * sr), sway, pivot))
 	draw_colored_polygon(star, gold)
 	draw_circle(_xf(Vector2(-1.0, 0.0), sway, pivot), 2.8, icing)
+
+func _draw_toy_snowglobe_tank() -> void:
+	# Festive Snowglobe Shield Tank (North Pole APS Tank!)
+	var ice_blue := _tint_toy(Color(0.24, 0.62, 0.88))
+	var crimson := _tint_toy(Color(0.86, 0.16, 0.20))
+	var gold := Color(0.98, 0.82, 0.26)
+	var white := Color(0.96, 0.98, 1.0)
+
+	var footprint: Array[Vector2] = [Vector2(19.5, -14.0), Vector2(19.5, 14.0), Vector2(-19.5, 14.0), Vector2(-19.5, -14.0)]
+	draw_colored_polygon(_poly(footprint, Vector2(5.5, 6.5)), Color(0.06, 0.12, 0.22, 0.38))
+	_draw_treads(19.5, 8.5, 13.8, 5.0)
+
+	var hull: Array[Vector2] = [Vector2(19.0, -9.0), Vector2(19.0, 9.0), Vector2(-18.5, 9.0), Vector2(-18.5, -9.0)]
+	_draw_bevel_poly(hull, ice_blue, Color(0.10, 0.26, 0.44))
+	draw_line(_xf(Vector2(12.0, -8.2)), _xf(Vector2(12.0, 8.2)), gold, 2.2, true)
+	draw_line(_xf(Vector2(-12.0, -8.2)), _xf(Vector2(-12.0, 8.2)), crimson, 2.2, true)
+
+	# Glass snowglobe turret dome with swirling snowflakes inside!
+	draw_circle(_xf(Vector2(0.0, 0.0)), 10.2, gold)
+	draw_circle(_xf(Vector2(0.0, 0.0)), 8.6, Color(0.66, 0.92, 1.0, 0.88))
+	for i in range(4):
+		var a: float = _time * 3.5 + float(i) * (PI * 0.5)
+		draw_circle(_xf(Vector2(cos(a) * 4.5, sin(a) * 4.5)), 1.5, white)
+	draw_circle(_xf(Vector2(2.8, -2.8)), 2.2, Color(1.0, 1.0, 1.0, 0.72))
+	_draw_windup_key(Vector2(-14.5, 0.0), 1.15)
+
+func _draw_toy_drone_sleigh() -> void:
+	# Festive Toy Drone-Launching Sleigh (North Pole UAV Carrier!)
+	var crimson := _tint_toy(Color(0.88, 0.14, 0.18))
+	var emerald := _tint_toy(Color(0.14, 0.58, 0.28))
+	var gold := Color(0.98, 0.82, 0.24)
+
+	var body: Array[Vector2] = [Vector2(18.0, -8.5), Vector2(18.0, 8.5), Vector2(-18.5, 9.5), Vector2(-18.5, -9.5)]
+	draw_colored_polygon(_poly(body, Vector2(4.8, 5.4)), Color(0.06, 0.12, 0.22, 0.36))
+
+	# Golden sleigh runners
+	for side: float in [-1.0, 1.0]:
+		draw_line(_xf(Vector2(21.0, side * 10.2)), _xf(Vector2(-19.0, side * 10.2)), gold, 2.8, true)
+		draw_circle(_xf(Vector2(21.0, side * 10.2)), 2.2, gold)
+
+	_draw_bevel_poly(body, crimson, Color(0.42, 0.06, 0.08))
+	var deck: Array[Vector2] = [Vector2(9.0, -7.2), Vector2(9.0, 7.2), Vector2(-16.0, 7.2), Vector2(-16.0, -7.2)]
+	_draw_bevel_poly(deck, emerald, gold)
+	# Toy ornament drone pods sitting in the sleigh bed
+	var left: int = maxi(0, _uav_max_spawns - _uav_spawned)
+	if left > 0:
+		draw_circle(_xf(Vector2(-2.0, -3.5)), 3.2, gold)
+		if left > 1:
+			draw_circle(_xf(Vector2(-2.0, 3.5)), 3.2, Color(0.38, 0.88, 1.0))
+	_draw_windup_key(Vector2(-12.5, 0.0), 1.1)
+
+func _draw_toy_ornament_drone() -> void:
+	# Tiny Clockwork Flying Ornament Drone!
+	var gold := Color(0.98, 0.82, 0.26)
+	var red := _tint_toy(Color(0.94, 0.22, 0.24))
+	draw_circle(Vector2(14.0, 18.0), 6.5, Color(0.06, 0.12, 0.22, 0.18))
+	var wings: Array[Vector2] = [Vector2(2.0, -9.5), Vector2(-3.0, -9.5), Vector2(-3.0, 9.5), Vector2(2.0, 9.5)]
+	_draw_bevel_poly(wings, gold, Color(0.46, 0.32, 0.08))
+	draw_circle(Vector2.ZERO, 6.2, red)
+	draw_arc(Vector2.ZERO, 6.2, 0.0, TAU, 16, gold, 1.4, true)
+	draw_circle(Vector2(-1.8, -1.8), 1.8, Color(1.0, 1.0, 1.0, 0.72))
+
+func _draw_toy_zeppelin_boss() -> void:
+	# Giant Royal Holiday Zeppelin Fortress (North Pole Air Boss!)
+	var crimson := _tint_toy(Color(0.88, 0.14, 0.18))
+	var emerald := _tint_toy(Color(0.12, 0.56, 0.28))
+	var gold := Color(0.98, 0.84, 0.28)
+	var cream := Color(0.98, 0.95, 0.88)
+	var sh := Vector2(34.0, 38.0)
+
+	var hull: Array[Vector2] = [
+		Vector2(34.0, 0.0), Vector2(22.0, 12.5), Vector2(4.0, 17.0),
+		Vector2(-16.0, 15.0), Vector2(-29.0, 8.0), Vector2(-34.0, 0.0),
+		Vector2(-29.0, -8.0), Vector2(-16.0, -15.0), Vector2(4.0, -17.0), Vector2(22.0, -12.5)
+	]
+	var fins: Array[Vector2] = [Vector2(-16.0, -25.5), Vector2(-28.0, -25.5), Vector2(-28.0, 25.5), Vector2(-16.0, 25.5)]
+	draw_colored_polygon(_poly(hull, sh), Color(0.06, 0.12, 0.22, 0.24))
+	draw_colored_polygon(_poly(fins, sh), Color(0.06, 0.12, 0.22, 0.20))
+
+	_draw_bevel_poly(fins, emerald, gold)
+	_draw_bevel_poly(hull, crimson, Color(0.42, 0.06, 0.08))
+	var band: Array[Vector2] = [Vector2(24.0, -5.5), Vector2(-24.0, -5.5), Vector2(-24.0, 5.5), Vector2(24.0, 5.5)]
+	draw_colored_polygon(_poly(band), cream)
+	for rx: float in [-16.0, -4.0, 8.0, 20.0]:
+		draw_line(_xf(Vector2(rx, -14.5)), _xf(Vector2(rx, 14.5)), gold, 2.2, true)
+	draw_circle(_xf(Vector2(32.0, 0.0)), 4.5, gold)
+	# Twin brass wingtip propellers
+	for side: float in [-1.0, 1.0]:
+		var hub: Vector2 = _xf(Vector2(0.0, side * 22.0))
+		var ps: float = 9.0 * sin(_rotor_angle * 1.4)
+		draw_line(hub - Vector2(0.0, ps), hub + Vector2(0.0, ps), gold, 3.2, true)
+		draw_circle(hub, 3.2, emerald)

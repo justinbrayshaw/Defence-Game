@@ -15,6 +15,7 @@ var placement_accent: Color = Color(0.25, 0.92, 0.45)
 var hovered_pad_index: int = -1
 
 var _time: float = 0.0
+var _biome: String = "alpine"
 var _is_desert: bool = false
 var _is_tundra: bool = false
 var _is_mountain: bool = false
@@ -28,6 +29,9 @@ var _oaks: Array[Dictionary] = []
 var _palms: Array[Dictionary] = []
 var _shrubs: Array[Dictionary] = []
 var _buildings: Array[Dictionary] = []
+var _domes: Array[Dictionary] = []
+var _crystals: Array[Dictionary] = []
+var _ambient_motes: Array[Dictionary] = []
 var _hay_bales: Array[Dictionary] = []
 var _logs: Array[Dictionary] = []
 var _rocks: Array[Dictionary] = []
@@ -46,6 +50,7 @@ var _mask_tex: ImageTexture
 func setup(data: Dictionary) -> void:
 	map_data = data
 	var biome: String = String(data.get("biome", "alpine"))
+	_biome = biome
 	_is_desert = (biome == "desert")
 	_is_tundra = (biome == "tundra")
 	_is_mountain = (biome == "mountain")
@@ -59,10 +64,26 @@ func setup(data: Dictionary) -> void:
 	_generate_props()
 	queue_redraw()
 
-func _get_bridges() -> Array:
+func _get_bridges() -> Array[Dictionary]:
+	var raw: Array = []
 	if map_data.has("bridges"):
-		return map_data["bridges"]
-	return [map_data["bridge_pos"]]
+		raw = map_data["bridges"]
+	elif map_data.has("bridge_pos"):
+		raw = [map_data["bridge_pos"]]
+	var out: Array[Dictionary] = []
+	for item in raw:
+		if item is Dictionary:
+			out.append({"pos": Vector2(item["pos"]), "angle": float(item.get("angle", 0.0))})
+		else:
+			out.append({"pos": Vector2(item), "angle": 0.0})
+	return out
+
+func _bridge_local(p: Vector2, b: Dictionary) -> Vector2:
+	var rel: Vector2 = p - Vector2(b["pos"])
+	var ang: float = float(b["angle"])
+	var d := Vector2.from_angle(ang)
+	var perp := Vector2(-d.y, d.x)
+	return Vector2(rel.dot(d), rel.dot(perp))
 
 func _bake_map_mask() -> void:
 	var img: Image = Image.create_empty(MASK_W, MASK_H, false, Image.FORMAT_RGBA8)
@@ -70,6 +91,7 @@ func _bake_map_mask() -> void:
 	var mh: float = float(map_data["height"])
 	var roads: Array = map_data["ground_coarses"]
 	var river: PackedVector2Array = map_data["river_points"]
+	var has_river: bool = river.size() >= 2
 	var pads: Array = map_data["pads"]
 	var base_pos: Vector2 = map_data["base_pos"]
 
@@ -84,8 +106,8 @@ func _bake_map_mask() -> void:
 			var p := Vector2(wx, wy)
 
 			var d_road: float = MapData.distance_to_polylines(p, roads)
-			var d_river: float = MapData.distance_to_polyline(p, river)
-			var dx_river: float = MapData.signed_x_to_river(p, river)
+			var d_river: float = MapData.distance_to_polyline(p, river) if has_river else 999.0
+			var dx_river: float = MapData.signed_sun_to_river(p, river) if has_river else 0.0
 
 			var d_pad: float = p.distance_to(base_pos) * 0.55
 			for pad_pos in pads:
@@ -108,6 +130,14 @@ func _bake_map_mask() -> void:
 	img.set_data(MASK_W, MASK_H, false, Image.FORMAT_RGBA8, bytes)
 	_mask_tex = ImageTexture.create_from_image(img)
 
+func _pack_bridge_vec4(bridges: Array[Dictionary], index: int) -> Vector4:
+	if index < bridges.size():
+		var b: Dictionary = bridges[index]
+		var bp: Vector2 = b["pos"]
+		var ang: float = float(b["angle"])
+		return Vector4(bp.x, bp.y, cos(ang), sin(ang))
+	return Vector4(-9999.0, -9999.0, 1.0, 0.0)
+
 func _setup_shader_background() -> void:
 	if _bg_rect != null and is_instance_valid(_bg_rect):
 		_bg_rect.queue_free()
@@ -120,13 +150,12 @@ func _setup_shader_background() -> void:
 	if shader != null:
 		var mat := ShaderMaterial.new()
 		mat.shader = shader
-		var bridges: Array = _get_bridges()
-		var b1: Vector2 = bridges[0] if bridges.size() >= 1 else Vector2(-9999.0, -9999.0)
-		var b2: Vector2 = bridges[1] if bridges.size() >= 2 else Vector2(-9999.0, -9999.0)
+		var bridges: Array[Dictionary] = _get_bridges()
 		mat.set_shader_parameter("map_mask", _mask_tex)
 		mat.set_shader_parameter("map_size", _bg_rect.size)
-		mat.set_shader_parameter("bridge_pos", b1)
-		mat.set_shader_parameter("bridge_pos_2", b2)
+		mat.set_shader_parameter("bridge_1", _pack_bridge_vec4(bridges, 0))
+		mat.set_shader_parameter("bridge_2", _pack_bridge_vec4(bridges, 1))
+		mat.set_shader_parameter("bridge_3", _pack_bridge_vec4(bridges, 2))
 		mat.set_shader_parameter("biome_type", int(map_data.get("biome_id", 0)))
 		_bg_rect.material = mat
 	else:
@@ -152,10 +181,22 @@ func _build_rock_poly(radius: float, rng: RandomNumberGenerator) -> PackedVector
 
 func _near_any_bridge(pos: Vector2, pad_y: float) -> bool:
 	for b in _get_bridges():
-		var bp: Vector2 = b
-		if absf(pos.y - bp.y) < pad_y and absf(pos.x - bp.x) < 110.0:
+		var loc := _bridge_local(pos, b)
+		if absf(loc.y) < pad_y and absf(loc.x) < 110.0:
 			return true
 	return false
+
+func _sample_river_point(river: PackedVector2Array, rng: RandomNumberGenerator) -> Dictionary:
+	var seg_idx: int = rng.randi_range(0, river.size() - 2)
+	var a: Vector2 = river[seg_idx]
+	var b: Vector2 = river[seg_idx + 1]
+	var t: float = rng.randf()
+	var p: Vector2 = a.lerp(b, t)
+	var tangent: Vector2 = (b - a).normalized()
+	if tangent.length_squared() < 0.001:
+		tangent = Vector2.DOWN
+	var perp := Vector2(-tangent.y, tangent.x)
+	return {"pos": p, "perp": perp}
 
 func _generate_props() -> void:
 	_trees.clear()
@@ -163,6 +204,9 @@ func _generate_props() -> void:
 	_palms.clear()
 	_shrubs.clear()
 	_buildings.clear()
+	_domes.clear()
+	_crystals.clear()
+	_ambient_motes.clear()
 	_hay_bales.clear()
 	_logs.clear()
 	_rocks.clear()
@@ -184,15 +228,17 @@ func _generate_props() -> void:
 	var river: PackedVector2Array = map_data["river_points"]
 	var pads: Array = map_data["pads"]
 	var base_pos: Vector2 = map_data["base_pos"]
-	var ref_bridge: Vector2 = map_data["bridge_pos"]
+	var has_river: bool = river.size() >= 2
 
-	# Riverbank boulders & half-submerged shoreline stones (skipped for engineered concrete town canal!)
-	var shore_attempts: int = 0 if _is_town else 110
+	# Riverbank boulders & half-submerged shoreline stones (sampled along actual river polyline!)
+	var skip_shore: bool = (not has_river) or _is_town or _biome in ["cyberpunk", "volcanic", "moon", "mars", "alien"]
+	var shore_attempts: int = 0 if skip_shore else 135
 	for _i in range(shore_attempts):
-		var ry: float = rng.randf_range(16.0, h - 16.0)
-		var rx_center: float = ref_bridge.x + rng.randf_range(-42.0, 42.0)
+		var samp := _sample_river_point(river, rng)
 		var side: float = -1.0 if rng.randf() < 0.5 else 1.0
-		var probe := Vector2(rx_center + side * rng.randf_range(34.0, 62.0), ry)
+		var probe: Vector2 = Vector2(samp["pos"]) + Vector2(samp["perp"]) * (side * rng.randf_range(34.0, 56.0))
+		if probe.x < 16.0 or probe.x > w - 16.0 or probe.y < 16.0 or probe.y > h - 16.0:
+			continue
 		if _near_any_bridge(probe, 58.0):
 			continue
 		var d_riv: float = MapData.distance_to_polyline(probe, river)
@@ -208,23 +254,26 @@ func _generate_props() -> void:
 			"wet": d_riv < 44.0,
 		})
 
-	if _is_tundra or _is_christmas:
-		# Floating glacial / aurora ice floes drifting in the canal
-		for _i in range(28):
-			var iy: float = rng.randf_range(24.0, h - 24.0)
-			var probe := Vector2(ref_bridge.x + rng.randf_range(-34.0, 34.0), iy)
-			if _near_any_bridge(probe, 56.0):
-				continue
-			if MapData.distance_to_polyline(probe, river) > 30.0:
-				continue
-			_ice_floes.append({
-				"pos": probe,
-				"verts": _build_rock_poly(rng.randf_range(5.0, 11.5), rng),
-				"bob_phase": rng.randf_range(0.0, TAU),
-			})
+	if _is_tundra or _is_christmas or _biome == "europa":
+		# Floating glacial / aurora / Europan abyssal ice floes drifting along the actual waterway
+		if has_river:
+			for _i in range(32):
+				var samp := _sample_river_point(river, rng)
+				var probe: Vector2 = Vector2(samp["pos"]) + Vector2(samp["perp"]) * rng.randf_range(-24.0, 24.0)
+				if probe.x < 24.0 or probe.x > w - 24.0 or probe.y < 24.0 or probe.y > h - 24.0:
+					continue
+				if _near_any_bridge(probe, 56.0):
+					continue
+				if MapData.distance_to_polyline(probe, river) > 30.0:
+					continue
+				_ice_floes.append({
+					"pos": probe,
+					"verts": _build_rock_poly(rng.randf_range(5.0, 11.5), rng),
+					"bob_phase": rng.randf_range(0.0, TAU),
+				})
 
-		# Ambient drifting snowflakes (sparklier & denser at the North Pole!)
-		var flake_count: int = 125 if _is_christmas else 95
+		# Ambient drifting snowflakes (sparklier & denser at the North Pole / icy Europa!)
+		var flake_count: int = 125 if _is_christmas else (75 if _biome == "europa" else 95)
 		for _i in range(flake_count):
 			_snowflakes.append({
 				"x": rng.randf_range(0.0, w),
@@ -266,12 +315,14 @@ func _generate_props() -> void:
 			Vector2(1420, 428), Vector2(1420, 532), Vector2(455, 435), Vector2(455, 525),
 		]
 
-	if _is_desert:
+	if _is_desert and has_river:
 		# Oasis Palm Trees clustered near the riverbanks
 		for _i in range(120):
-			var py: float = rng.randf_range(26.0, h - 26.0)
+			var samp := _sample_river_point(river, rng)
 			var side: float = -1.0 if rng.randf() < 0.5 else 1.0
-			var pos := Vector2(ref_bridge.x + side * rng.randf_range(48.0, 128.0) + rng.randf_range(-20.0, 20.0), py)
+			var pos: Vector2 = Vector2(samp["pos"]) + Vector2(samp["perp"]) * (side * rng.randf_range(48.0, 120.0))
+			if pos.x < 26.0 or pos.x > w - 26.0 or pos.y < 26.0 or pos.y > h - 26.0:
+				continue
 			if _near_any_bridge(pos, 62.0):
 				continue
 			var d_riv: float = MapData.distance_to_polyline(pos, river)
@@ -369,9 +420,11 @@ func _generate_props() -> void:
 			})
 
 	# Clustered 3D boulders
-	var rock_attempts: int = 12 if _is_town else (24 if _is_countryside else (108 if (_is_mountain or _is_outback) else (86 if _is_desert else (76 if _is_tundra else 62))))
+	var rock_attempts: int = 12 if (_is_town or _biome == "cyberpunk") else (24 if (_is_countryside or _biome == "tropical") else (108 if (_is_mountain or _is_outback or _biome in ["volcanic", "moon", "mars"]) else (86 if _is_desert else (76 if (_is_tundra or _biome == "europa") else 62))))
 	for _i in range(rock_attempts):
 		var pos := Vector2(rng.randf_range(35.0, w - 35.0), rng.randf_range(35.0, h - 35.0))
+		if _biome == "tropical" and Vector2((pos.x - 800.0) / 710.0, (pos.y - 480.0) / 415.0).length() > 0.94:
+			continue
 		if pos.distance_to(base_pos) < 135.0:
 			continue
 		if MapData.distance_to_polylines(pos, roads) < MapData.ROAD_WIDTH * 0.88:
@@ -558,6 +611,239 @@ func _generate_new_biome_props(rng: RandomNumberGenerator, w: float, h: float, r
 				"shade": rng.randf_range(0.84, 1.16),
 			})
 
+	elif _biome == "tropical":
+		# Pacific Coral Atoll: Swap conifers for abundant lush coconut palms tucked on the sandy atoll islets & central island!
+		_trees.clear()
+		for _i in range(210):
+			var pos := Vector2(rng.randf_range(40.0, w - 40.0), rng.randf_range(40.0, h - 40.0))
+			if Vector2((pos.x - 800.0) / 720.0, (pos.y - 480.0) / 422.0).length() > 0.94:
+				continue
+			if _prop_blocked(pos, 48.0, roads, river, pads, base_pos):
+				continue
+			var fronds: Array[Dictionary] = []
+			var count: int = rng.randi_range(7, 10)
+			var base_rot: float = rng.randf_range(0.0, TAU)
+			var rad: float = rng.randf_range(16.0, 26.0)
+			for f in range(count):
+				var ang: float = base_rot + float(f) * (TAU / float(count)) + rng.randf_range(-0.16, 0.16)
+				fronds.append({
+					"ang": ang,
+					"len": rad * rng.randf_range(0.82, 1.15),
+					"w": rng.randf_range(3.8, 5.4),
+				})
+			_palms.append({"pos": pos, "fronds": fronds, "shade": rng.randf_range(0.88, 1.18)})
+		for _i in range(70):
+			var pos := Vector2(rng.randf_range(45.0, w - 45.0), rng.randf_range(45.0, h - 45.0))
+			if Vector2((pos.x - 800.0) / 700.0, (pos.y - 480.0) / 408.0).length() > 0.90:
+				continue
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			if MapData.distance_to_polyline(pos, river) < 92.0:
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(12.0, 19.0), rng, "oak"))
+
+	elif _biome == "volcanic":
+		# Obsidian Caldera: Jagged dark obsidian crystal spires + rising glowing embers!
+		_trees.clear()
+		for _i in range(85):
+			var pos := Vector2(rng.randf_range(30.0, w - 30.0), rng.randf_range(30.0, h - 30.0))
+			if _prop_blocked(pos, 52.0, roads, river, pads, base_pos):
+				continue
+			_crystals.append(_make_crystal_cluster(pos, rng.randf_range(12.0, 22.0), rng, "obsidian"))
+		for _i in range(90):
+			_ambient_motes.append({
+				"x": rng.randf_range(0.0, w),
+				"y": rng.randf_range(0.0, h),
+				"vx": rng.randf_range(14.0, 36.0),
+				"vy": rng.randf_range(-34.0, -14.0),
+				"r": rng.randf_range(1.2, 2.8),
+				"phase": rng.randf_range(0.0, TAU),
+				"kind": "ember",
+			})
+
+	elif _biome == "swamp":
+		# Cypress Bayou: Gnarled moss-draped cypress trees, rotting marsh logs & twinkling fireflies!
+		_trees.clear()
+		for _i in range(185):
+			var pos := Vector2(rng.randf_range(26.0, w - 26.0), rng.randf_range(26.0, h - 26.0))
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(13.0, 23.0), rng, "cypress"))
+		for _i in range(44):
+			var pos := Vector2(rng.randf_range(40.0, w - 40.0), rng.randf_range(40.0, h - 40.0))
+			if _prop_blocked(pos, 52.0, roads, river, pads, base_pos):
+				continue
+			_logs.append({"pos": pos, "ang": rng.randf_range(0.0, TAU), "len": rng.randf_range(22.0, 36.0)})
+		for _i in range(72):
+			_ambient_motes.append({
+				"x": rng.randf_range(0.0, w),
+				"y": rng.randf_range(0.0, h),
+				"vx": rng.randf_range(-16.0, 16.0),
+				"vy": rng.randf_range(-14.0, 14.0),
+				"r": rng.randf_range(1.6, 2.8),
+				"phase": rng.randf_range(0.0, TAU),
+				"kind": "firefly",
+			})
+
+	elif _biome == "cyberpunk":
+		# Neo-Tokyo 2099: Sleek dark cyber-skyscrapers with glowing neon billboards + diagonal rain!
+		_trees.clear()
+		var neon_palette: Array[Color] = [
+			Color(0.10, 0.94, 1.0),  # Electric Cyan
+			Color(1.0, 0.18, 0.72),  # Neon Magenta
+			Color(1.0, 0.78, 0.16),  # Cyber Amber
+			Color(0.46, 0.34, 1.0),  # Ultraviolet
+		]
+		for _i in range(145):
+			var bw: float = rng.randf_range(36.0, 70.0)
+			var bh: float = rng.randf_range(28.0, 56.0)
+			var pos := Vector2(rng.randf_range(50.0, w - 50.0), rng.randf_range(45.0, h - 45.0))
+			var clearance: float = maxf(bw, bh) * 0.5 + 14.0
+			if pos.distance_to(base_pos) < 125.0 + clearance * 0.4:
+				continue
+			if MapData.distance_to_polylines(pos, roads) < MapData.ROAD_WIDTH * 0.65 + clearance:
+				continue
+			if MapData.distance_to_polyline(pos, river) < MapData.RIVER_WIDTH * 0.62 + clearance:
+				continue
+			var blocked := false
+			for pad in pads:
+				if pos.distance_to(pad) < 34.0 + clearance:
+					blocked = true
+					break
+			if blocked:
+				continue
+			for existing in _buildings:
+				var ep: Vector2 = existing["pos"]
+				var er: float = maxf(float(existing["w"]), float(existing["h"])) * 0.55
+				if pos.distance_to(ep) < clearance + er - 4.0:
+					blocked = true
+					break
+			if blocked:
+				continue
+			_buildings.append({
+				"pos": pos,
+				"w": bw,
+				"h": bh,
+				"style": 5,
+				"color": neon_palette[rng.randi() % neon_palette.size()],
+			})
+		for _i in range(110):
+			_ambient_motes.append({
+				"x": rng.randf_range(0.0, w),
+				"y": rng.randf_range(0.0, h),
+				"vx": 95.0,
+				"vy": 320.0,
+				"r": rng.randf_range(10.0, 18.0),
+				"phase": rng.randf_range(0.0, TAU),
+				"kind": "rain",
+			})
+
+	elif _biome == "moon":
+		# The Moon: White pressurized lunar habitat domes + blue solar panel wings!
+		_trees.clear()
+		for _i in range(36):
+			var pos := Vector2(rng.randf_range(65.0, w - 65.0), rng.randf_range(60.0, h - 60.0))
+			if _prop_blocked(pos, 66.0, roads, river, pads, base_pos):
+				continue
+			var overlap := false
+			for dm in _domes:
+				if pos.distance_to(dm["pos"]) < 95.0:
+					overlap = true
+					break
+			if overlap:
+				continue
+			_domes.append({"pos": pos, "r": rng.randf_range(14.0, 21.0), "kind": "lunar", "ang": rng.randf_range(-0.4, 0.4)})
+
+	elif _biome == "mars":
+		# Mars Olympus Rift: Pressurized Mars colony bio-domes with solar wings + drifting red dust!
+		_trees.clear()
+		for _i in range(32):
+			var pos := Vector2(rng.randf_range(65.0, w - 65.0), rng.randf_range(60.0, h - 60.0))
+			if _prop_blocked(pos, 66.0, roads, river, pads, base_pos):
+				continue
+			var overlap := false
+			for dm in _domes:
+				if pos.distance_to(dm["pos"]) < 95.0:
+					overlap = true
+					break
+			if overlap:
+				continue
+			_domes.append({"pos": pos, "r": rng.randf_range(14.0, 21.0), "kind": "mars", "ang": rng.randf_range(-0.4, 0.4)})
+		for _i in range(80):
+			_ambient_motes.append({
+				"x": rng.randf_range(0.0, w),
+				"y": rng.randf_range(0.0, h),
+				"vx": rng.randf_range(70.0, 125.0),
+				"vy": rng.randf_range(16.0, 36.0),
+				"r": rng.randf_range(1.4, 3.0),
+				"phase": rng.randf_range(0.0, TAU),
+				"kind": "mars_dust",
+			})
+
+	elif _biome == "europa":
+		# Europa Ice Shell: Faceted glowing cyan/sapphire ice spires + cryo research domes!
+		_trees.clear()
+		for _i in range(105):
+			var pos := Vector2(rng.randf_range(28.0, w - 28.0), rng.randf_range(28.0, h - 28.0))
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			_crystals.append(_make_crystal_cluster(pos, rng.randf_range(11.0, 21.0), rng, "ice"))
+		for _i in range(22):
+			var pos := Vector2(rng.randf_range(65.0, w - 65.0), rng.randf_range(60.0, h - 60.0))
+			if _prop_blocked(pos, 66.0, roads, river, pads, base_pos):
+				continue
+			var overlap := false
+			for dm in _domes:
+				if pos.distance_to(dm["pos"]) < 105.0:
+					overlap = true
+					break
+			if overlap:
+				continue
+			_domes.append({"pos": pos, "r": rng.randf_range(13.0, 19.0), "kind": "europa", "ang": rng.randf_range(-0.4, 0.4)})
+
+	elif _biome == "alien":
+		# Xenon Prime: Glowing neon magenta/cyan crystal clusters, alien flora pods & floating spores!
+		_trees.clear()
+		for _i in range(115):
+			var pos := Vector2(rng.randf_range(28.0, w - 28.0), rng.randf_range(28.0, h - 28.0))
+			if _prop_blocked(pos, 50.0, roads, river, pads, base_pos):
+				continue
+			var c_kind: String = "xeno_cyan" if rng.randf() < 0.5 else "xeno_magenta"
+			_crystals.append(_make_crystal_cluster(pos, rng.randf_range(12.0, 23.0), rng, c_kind))
+		for _i in range(65):
+			var pos := Vector2(rng.randf_range(28.0, w - 28.0), rng.randf_range(28.0, h - 28.0))
+			if _prop_blocked(pos, 52.0, roads, river, pads, base_pos):
+				continue
+			_oaks.append(_make_oak(pos, rng.randf_range(11.0, 19.0), rng, "alien_pod"))
+		for _i in range(95):
+			_ambient_motes.append({
+				"x": rng.randf_range(0.0, w),
+				"y": rng.randf_range(0.0, h),
+				"vx": rng.randf_range(-18.0, 24.0),
+				"vy": rng.randf_range(-28.0, -8.0),
+				"r": rng.randf_range(1.6, 3.2),
+				"phase": rng.randf_range(0.0, TAU),
+				"kind": "spore",
+			})
+
+func _make_crystal_cluster(pos: Vector2, radius: float, rng: RandomNumberGenerator, kind: String) -> Dictionary:
+	var shards: Array[Dictionary] = []
+	var count: int = rng.randi_range(3, 5)
+	for i in range(count):
+		var a: float = float(i) * (TAU / float(count)) + rng.randf_range(-0.35, 0.35)
+		shards.append({
+			"ang": a,
+			"len": radius * rng.randf_range(0.62, 1.18),
+			"w": radius * rng.randf_range(0.24, 0.36),
+		})
+	return {
+		"pos": pos,
+		"radius": radius,
+		"kind": kind,
+		"shards": shards,
+		"phase": rng.randf_range(0.0, TAU),
+	}
+
 func _prop_blocked(pos: Vector2, pad_clear: float, roads: Array, river: PackedVector2Array, pads: Array, base_pos: Vector2) -> bool:
 	if pos.distance_to(base_pos) < 128.0:
 		return true
@@ -589,12 +875,17 @@ func _make_oak(pos: Vector2, radius: float, rng: RandomNumberGenerator, kind: St
 
 func _process(delta: float) -> void:
 	_time += delta
-	if (_is_tundra or _is_christmas) and not map_data.is_empty():
+	if not map_data.is_empty():
 		var w: float = float(map_data["width"])
 		var h: float = float(map_data["height"])
-		for sf in _snowflakes:
-			sf["x"] = fposmod(float(sf["x"]) + float(sf["vx"]) * delta, w)
-			sf["y"] = fposmod(float(sf["y"]) + float(sf["vy"]) * delta, h)
+		if _is_tundra or _is_christmas or _biome == "europa":
+			for sf in _snowflakes:
+				sf["x"] = fposmod(float(sf["x"]) + float(sf["vx"]) * delta, w)
+				sf["y"] = fposmod(float(sf["y"]) + float(sf["vy"]) * delta, h)
+		if not _ambient_motes.is_empty():
+			for mt in _ambient_motes:
+				mt["x"] = fposmod(float(mt["x"]) + float(mt["vx"]) * delta, w)
+				mt["y"] = fposmod(float(mt["y"]) + float(mt["vy"]) * delta, h)
 	queue_redraw()
 
 func _draw() -> void:
@@ -602,7 +893,7 @@ func _draw() -> void:
 		return
 	_draw_road_markings()
 	_draw_shore_stones()
-	if _is_tundra or _is_christmas:
+	if _is_tundra or _is_christmas or _biome == "europa":
 		_draw_ice_floes()
 	_draw_bridges()
 	_draw_air_corridor_hint()
@@ -619,27 +910,43 @@ func _draw() -> void:
 		_draw_hq_fortress()
 	_draw_spawn_markers()
 	_draw_buildings()
+	if not _domes.is_empty():
+		_draw_domes()
+	if not _crystals.is_empty():
+		_draw_crystals()
 	if _is_desert or _is_outback:
 		_draw_shrubs()
-	if _is_desert:
+	if _is_desert or _biome == "tropical":
 		_draw_palms()
 	if not _trees.is_empty():
 		_draw_trees()
 	if not _oaks.is_empty():
 		_draw_oaks()
-	if _is_tundra or _is_christmas:
+	if _is_tundra or _is_christmas or _biome == "europa":
 		_draw_snowfall()
+	if not _ambient_motes.is_empty():
+		_draw_ambient_motes()
 
 func _point_over_any_bridge(p: Vector2) -> bool:
 	for b in _get_bridges():
-		var bp: Vector2 = b
-		if absf(p.x - bp.x) <= 68.0 and absf(p.y - bp.y) <= 40.0:
+		var loc := _bridge_local(p, b)
+		if absf(loc.x) <= 68.0 and absf(loc.y) <= 40.0:
 			return true
 	return false
 
 func _draw_road_markings() -> void:
 	var paths: Array = map_data["ground_paths"]
 	var line_col := Color(0.86, 0.74, 0.36, 0.46) if _is_desert else (Color(0.82, 0.76, 0.44, 0.40) if _is_tundra else Color(0.78, 0.67, 0.33, 0.44))
+	if _biome == "cyberpunk":
+		line_col = Color(0.16, 0.94, 1.0, 0.72)
+	elif _biome == "alien":
+		line_col = Color(0.92, 0.34, 0.98, 0.68)
+	elif _biome == "volcanic":
+		line_col = Color(1.0, 0.56, 0.16, 0.58)
+	elif _biome == "moon":
+		line_col = Color(0.86, 0.88, 0.92, 0.42)
+	elif _biome == "europa":
+		line_col = Color(0.46, 0.92, 1.0, 0.52)
 	for road in paths:
 		var acc: float = 0.0
 		for i in range(road.size() - 1):
@@ -686,9 +993,10 @@ func _draw_ice_floes() -> void:
 
 func _draw_bridges() -> void:
 	for b in _get_bridges():
-		_draw_single_bridge(Vector2(b))
+		_draw_single_bridge(Vector2(b["pos"]), float(b["angle"]))
 
-func _draw_single_bridge(bp: Vector2) -> void:
+func _draw_single_bridge(bp: Vector2, ang: float = 0.0) -> void:
+	draw_set_transform(bp, ang)
 	var half_w: float = 68.0
 	var half_h: float = MapData.ROAD_WIDTH * 0.58
 
@@ -698,66 +1006,81 @@ func _draw_single_bridge(bp: Vector2) -> void:
 
 	# Concrete support piers anchored down into the river
 	for ox: float in [-20.0, 20.0]:
-		draw_rect(Rect2(bp + Vector2(ox - 7.0, -half_h - 14.0), Vector2(14.0, half_h * 2.0 + 28.0)), conc_dark)
-		draw_rect(Rect2(bp + Vector2(ox - 5.0, -half_h - 12.0), Vector2(6.0, half_h * 2.0 + 24.0)), conc_lit)
+		draw_rect(Rect2(Vector2(ox - 7.0, -half_h - 14.0), Vector2(14.0, half_h * 2.0 + 28.0)), conc_dark)
+		draw_rect(Rect2(Vector2(ox - 5.0, -half_h - 12.0), Vector2(6.0, half_h * 2.0 + 24.0)), conc_lit)
 
 	# Heavy concrete bridge abutments
 	for side: float in [-1.0, 1.0]:
-		var ax: float = bp.x + side * (half_w + 6.0)
-		draw_rect(Rect2(Vector2(ax - 11.0 + 4.0, bp.y - half_h - 10.0 + 5.0), Vector2(22.0, half_h * 2.0 + 20.0)), Color(0.0, 0.0, 0.0, 0.36))
-		draw_rect(Rect2(Vector2(ax - 11.0, bp.y - half_h - 10.0), Vector2(22.0, half_h * 2.0 + 20.0)), conc_dark)
-		draw_rect(Rect2(Vector2(ax - 9.0, bp.y - half_h - 8.0), Vector2(16.0, half_h * 2.0 + 16.0)), conc_lit)
-		draw_line(Vector2(ax - 10.0, bp.y - half_h - 9.0), Vector2(ax - 10.0, bp.y + half_h + 9.0), conc_rim, 2.0)
+		var ax: float = side * (half_w + 6.0)
+		draw_rect(Rect2(Vector2(ax - 11.0 + 4.0, -half_h - 10.0 + 5.0), Vector2(22.0, half_h * 2.0 + 20.0)), Color(0.0, 0.0, 0.0, 0.36))
+		draw_rect(Rect2(Vector2(ax - 11.0, -half_h - 10.0), Vector2(22.0, half_h * 2.0 + 20.0)), conc_dark)
+		draw_rect(Rect2(Vector2(ax - 9.0, -half_h - 8.0), Vector2(16.0, half_h * 2.0 + 16.0)), conc_lit)
+		draw_line(Vector2(ax - 10.0, -half_h - 9.0), Vector2(ax - 10.0, half_h + 9.0), conc_rim, 2.0)
 
 	# Steel ribbed deck surface with weathered inlay & dark tire ruts
-	draw_rect(Rect2(bp + Vector2(-half_w, -half_h), Vector2(half_w * 2.0, half_h * 2.0)), Color(0.24, 0.23, 0.21) if _is_desert else (Color(0.20, 0.23, 0.26) if _is_tundra else Color(0.21, 0.22, 0.22)))
-	draw_rect(Rect2(bp + Vector2(-half_w, -half_h + 8.0), Vector2(half_w * 2.0, half_h * 2.0 - 16.0)), Color(0.28, 0.26, 0.23) if _is_desert else (Color(0.25, 0.28, 0.32) if _is_tundra else Color(0.24, 0.24, 0.23)))
-	draw_rect(Rect2(bp + Vector2(-half_w, -half_h), Vector2(half_w * 2.0, 8.0)), Color(0.46, 0.52, 0.58) if _is_tundra else Color(0.18, 0.18, 0.17))
-	draw_rect(Rect2(bp + Vector2(-half_w, half_h - 8.0), Vector2(half_w * 2.0, 8.0)), Color(0.46, 0.52, 0.58) if _is_tundra else Color(0.18, 0.18, 0.17))
+	draw_rect(Rect2(Vector2(-half_w, -half_h), Vector2(half_w * 2.0, half_h * 2.0)), Color(0.24, 0.23, 0.21) if _is_desert else (Color(0.20, 0.23, 0.26) if _is_tundra else Color(0.21, 0.22, 0.22)))
+	draw_rect(Rect2(Vector2(-half_w, -half_h + 8.0), Vector2(half_w * 2.0, half_h * 2.0 - 16.0)), Color(0.28, 0.26, 0.23) if _is_desert else (Color(0.25, 0.28, 0.32) if _is_tundra else Color(0.24, 0.24, 0.23)))
+	draw_rect(Rect2(Vector2(-half_w, -half_h), Vector2(half_w * 2.0, 8.0)), Color(0.46, 0.52, 0.58) if _is_tundra else Color(0.18, 0.18, 0.17))
+	draw_rect(Rect2(Vector2(-half_w, half_h - 8.0), Vector2(half_w * 2.0, 8.0)), Color(0.46, 0.52, 0.58) if _is_tundra else Color(0.18, 0.18, 0.17))
 
-	draw_line(bp + Vector2(-half_w, -13.0), bp + Vector2(half_w, -13.0), Color(0.12, 0.12, 0.13, 0.58), 8.5)
-	draw_line(bp + Vector2(-half_w, 13.0), bp + Vector2(half_w, 13.0), Color(0.12, 0.12, 0.13, 0.58), 8.5)
+	draw_line(Vector2(-half_w, -13.0), Vector2(half_w, -13.0), Color(0.12, 0.12, 0.13, 0.58), 8.5)
+	draw_line(Vector2(-half_w, 13.0), Vector2(half_w, 13.0), Color(0.12, 0.12, 0.13, 0.58), 8.5)
 	for dx: float in [-46.0, -14.0, 18.0, 48.0]:
-		draw_line(bp + Vector2(dx - 8.0, 0.0), bp + Vector2(dx + 8.0, 0.0), Color(0.82, 0.72, 0.34, 0.48), 2.2)
+		draw_line(Vector2(dx - 8.0, 0.0), Vector2(dx + 8.0, 0.0), Color(0.82, 0.72, 0.34, 0.48), 2.2)
 
 	for x_off: float in [-54.0, -27.0, 0.0, 27.0, 54.0]:
-		draw_line(bp + Vector2(x_off, -half_h + 2.0), bp + Vector2(x_off, half_h - 2.0), Color(0.12, 0.13, 0.14, 0.85), 2.4)
-		draw_line(bp + Vector2(x_off + 8.0, -half_h + 6.0), bp + Vector2(x_off + 8.0, half_h - 2.0), Color(0.0, 0.0, 0.0, 0.24), 4.5)
+		draw_line(Vector2(x_off, -half_h + 2.0), Vector2(x_off, half_h - 2.0), Color(0.12, 0.13, 0.14, 0.85), 2.4)
+		draw_line(Vector2(x_off + 8.0, -half_h + 6.0), Vector2(x_off + 8.0, half_h - 2.0), Color(0.0, 0.0, 0.0, 0.24), 4.5)
 
 	# Raised 3D steel side truss girders (frosted with snow on tundra!)
-	draw_rect(Rect2(bp + Vector2(-half_w - 2.0, -half_h + 2.0), Vector2(half_w * 2.0 + 4.0, 8.0)), Color(0.0, 0.0, 0.0, 0.30))
-	draw_rect(Rect2(bp + Vector2(-half_w - 2.0, -half_h - 7.0), Vector2(half_w * 2.0 + 4.0, 10.0)), Color(0.30, 0.28, 0.25) if _is_desert else (Color(0.28, 0.33, 0.38) if _is_tundra else Color(0.24, 0.26, 0.25)))
-	draw_rect(Rect2(bp + Vector2(-half_w - 2.0, -half_h - 6.0), Vector2(half_w * 2.0 + 4.0, 3.5)), Color(0.58, 0.54, 0.47) if _is_desert else (Color(0.82, 0.87, 0.92) if _is_tundra else Color(0.52, 0.54, 0.50)))
+	draw_rect(Rect2(Vector2(-half_w - 2.0, -half_h + 2.0), Vector2(half_w * 2.0 + 4.0, 8.0)), Color(0.0, 0.0, 0.0, 0.30))
+	draw_rect(Rect2(Vector2(-half_w - 2.0, -half_h - 7.0), Vector2(half_w * 2.0 + 4.0, 10.0)), Color(0.30, 0.28, 0.25) if _is_desert else (Color(0.28, 0.33, 0.38) if _is_tundra else Color(0.24, 0.26, 0.25)))
+	draw_rect(Rect2(Vector2(-half_w - 2.0, -half_h - 6.0), Vector2(half_w * 2.0 + 4.0, 3.5)), Color(0.58, 0.54, 0.47) if _is_desert else (Color(0.82, 0.87, 0.92) if _is_tundra else Color(0.52, 0.54, 0.50)))
 
-	draw_rect(Rect2(bp + Vector2(-half_w - 2.0, half_h - 3.0), Vector2(half_w * 2.0 + 4.0, 10.0)), Color(0.27, 0.25, 0.23) if _is_desert else (Color(0.25, 0.30, 0.35) if _is_tundra else Color(0.22, 0.24, 0.23)))
-	draw_rect(Rect2(bp + Vector2(-half_w - 2.0, half_h - 2.0), Vector2(half_w * 2.0 + 4.0, 3.5)), Color(0.52, 0.48, 0.42) if _is_desert else (Color(0.76, 0.82, 0.88) if _is_tundra else Color(0.46, 0.48, 0.45)))
+	draw_rect(Rect2(Vector2(-half_w - 2.0, half_h - 3.0), Vector2(half_w * 2.0 + 4.0, 10.0)), Color(0.27, 0.25, 0.23) if _is_desert else (Color(0.25, 0.30, 0.35) if _is_tundra else Color(0.22, 0.24, 0.23)))
+	draw_rect(Rect2(Vector2(-half_w - 2.0, half_h - 2.0), Vector2(half_w * 2.0 + 4.0, 3.5)), Color(0.52, 0.48, 0.42) if _is_desert else (Color(0.76, 0.82, 0.88) if _is_tundra else Color(0.46, 0.48, 0.45)))
 
 	for x_off: float in [-58.0, -35.0, -12.0, 12.0, 35.0, 58.0]:
-		draw_rect(Rect2(bp + Vector2(x_off - 4.0, -half_h - 8.0), Vector2(8.0, 12.0)), Color(0.52, 0.58, 0.64) if _is_tundra else Color(0.44, 0.42, 0.38))
-		draw_rect(Rect2(bp + Vector2(x_off - 4.0, -half_h - 8.0), Vector2(3.0, 12.0)), Color(0.76, 0.82, 0.88) if _is_tundra else Color(0.58, 0.56, 0.51))
-		draw_rect(Rect2(bp + Vector2(x_off - 4.0, half_h - 4.0), Vector2(8.0, 12.0)), Color(0.48, 0.54, 0.60) if _is_tundra else Color(0.40, 0.38, 0.35))
-		draw_rect(Rect2(bp + Vector2(x_off - 4.0, half_h - 4.0), Vector2(3.0, 12.0)), Color(0.70, 0.76, 0.82) if _is_tundra else Color(0.52, 0.50, 0.45))
-		draw_circle(bp + Vector2(x_off, -half_h - 2.0), 1.4, Color(0.12, 0.13, 0.14))
-		draw_circle(bp + Vector2(x_off, half_h + 2.0), 1.4, Color(0.12, 0.13, 0.14))
+		draw_rect(Rect2(Vector2(x_off - 4.0, -half_h - 8.0), Vector2(8.0, 12.0)), Color(0.52, 0.58, 0.64) if _is_tundra else Color(0.44, 0.42, 0.38))
+		draw_rect(Rect2(Vector2(x_off - 4.0, -half_h - 8.0), Vector2(3.0, 12.0)), Color(0.76, 0.82, 0.88) if _is_tundra else Color(0.58, 0.56, 0.51))
+		draw_rect(Rect2(Vector2(x_off - 4.0, half_h - 4.0), Vector2(8.0, 12.0)), Color(0.48, 0.54, 0.60) if _is_tundra else Color(0.40, 0.38, 0.35))
+		draw_rect(Rect2(Vector2(x_off - 4.0, half_h - 4.0), Vector2(3.0, 12.0)), Color(0.70, 0.76, 0.82) if _is_tundra else Color(0.52, 0.50, 0.45))
+		draw_circle(Vector2(x_off, -half_h - 2.0), 1.4, Color(0.12, 0.13, 0.14))
+		draw_circle(Vector2(x_off, half_h + 2.0), 1.4, Color(0.12, 0.13, 0.14))
 
 	for side: float in [-1.0, 1.0]:
-		var hx: float = bp.x + side * (half_w + 7.5)
+		var hx: float = side * (half_w + 7.5)
 		for y_step in range(-28, 28, 12):
-			draw_line(Vector2(hx, bp.y + float(y_step)), Vector2(hx, bp.y + float(y_step) + 6.0), Color(0.92, 0.72, 0.20, 0.88), 3.0)
+			draw_line(Vector2(hx, float(y_step)), Vector2(hx, float(y_step) + 6.0), Color(0.92, 0.72, 0.20, 0.88), 3.0)
 
-	# Festive fairy-light garlands & candy-cane side rails on Christmas North Pole bridges!
+	# Festive fairy-light garlands & glowing futuristic side rails!
 	if _is_christmas:
 		var bulb_cols: Array[Color] = [
 			Color(1.0, 0.24, 0.24), Color(1.0, 0.88, 0.26),
 			Color(0.24, 0.96, 0.46), Color(0.38, 0.86, 1.0)
 		]
 		for bx_i in range(9):
-			var lx: float = bp.x + lerpf(-half_w + 4.0, half_w - 4.0, float(bx_i) / 8.0)
+			var lx: float = lerpf(-half_w + 4.0, half_w - 4.0, float(bx_i) / 8.0)
 			var tw: float = 0.55 + 0.45 * sin(_time * 5.2 + float(bx_i) * 1.1)
 			var c: Color = bulb_cols[bx_i % bulb_cols.size()]
 			for ry: float in [-half_h - 3.0, half_h + 3.0]:
-				draw_circle(Vector2(lx, bp.y + ry), 5.2, Color(c.r, c.g, c.b, 0.24 * tw))
-				draw_circle(Vector2(lx, bp.y + ry), 2.3, Color(c.r, c.g, c.b, 0.95 * tw))
+				draw_circle(Vector2(lx, ry), 5.2, Color(c.r, c.g, c.b, 0.24 * tw))
+				draw_circle(Vector2(lx, ry), 2.3, Color(c.r, c.g, c.b, 0.95 * tw))
+	elif _biome == "cyberpunk" or _biome == "alien":
+		var glow_a := Color(0.10, 0.95, 1.0) if _biome == "cyberpunk" else Color(0.94, 0.24, 0.98)
+		var glow_b := Color(1.0, 0.16, 0.72) if _biome == "cyberpunk" else Color(0.18, 0.96, 0.94)
+		var pulse_n: float = 0.72 + 0.28 * sin(_time * 4.2)
+		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(glow_a.r, glow_a.g, glow_a.b, 0.35 * pulse_n), 6.0, true)
+		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), glow_a, 2.2, true)
+		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(glow_b.r, glow_b.g, glow_b.b, 0.35 * pulse_n), 6.0, true)
+		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), glow_b, 2.2, true)
+	elif _biome == "volcanic":
+		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(1.0, 0.48, 0.08, 0.85), 2.4, true)
+		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(1.0, 0.48, 0.08, 0.85), 2.4, true)
+	elif _biome == "moon" or _biome == "europa":
+		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(0.88, 0.94, 1.0, 0.85), 2.4, true)
+		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(0.88, 0.94, 1.0, 0.85), 2.4, true)
+	draw_set_transform(Vector2.ZERO, 0.0)
 
 func _draw_air_corridor_hint() -> void:
 	var air: PackedVector2Array = map_data["air_path"]
@@ -832,10 +1155,26 @@ func _draw_rocks() -> void:
 			c_dark = Color(0.36 * s, 0.13 * s, 0.08 * s)
 			c_mid = Color(0.56 * s, 0.21 * s, 0.12 * s)
 			c_lit = Color(0.74 * s, 0.34 * s, 0.18 * s)
-		elif _is_tundra:
+		elif _is_tundra or _biome == "europa":
 			c_dark = Color(0.18 * s, 0.22 * s, 0.27 * s)
 			c_mid = Color(0.30 * s, 0.35 * s, 0.41 * s)
 			c_lit = Color(0.78 * s, 0.84 * s, 0.90 * s)
+		elif _biome == "volcanic":
+			c_dark = Color(0.08 * s, 0.08 * s, 0.09 * s)
+			c_mid = Color(0.16 * s, 0.15 * s, 0.16 * s)
+			c_lit = Color(0.30 * s, 0.24 * s, 0.22 * s)
+		elif _biome == "moon":
+			c_dark = Color(0.18 * s, 0.19 * s, 0.21 * s)
+			c_mid = Color(0.42 * s, 0.43 * s, 0.45 * s)
+			c_lit = Color(0.74 * s, 0.75 * s, 0.78 * s)
+		elif _biome == "mars":
+			c_dark = Color(0.30 * s, 0.12 * s, 0.08 * s)
+			c_mid = Color(0.54 * s, 0.23 * s, 0.14 * s)
+			c_lit = Color(0.76 * s, 0.38 * s, 0.22 * s)
+		elif _biome == "alien":
+			c_dark = Color(0.12 * s, 0.08 * s, 0.20 * s)
+			c_mid = Color(0.24 * s, 0.14 * s, 0.36 * s)
+			c_lit = Color(0.40 * s, 0.28 * s, 0.58 * s)
 		else:
 			c_dark = Color(0.22 * s, 0.23 * s, 0.20 * s)
 			c_mid = Color(0.35 * s, 0.34 * s, 0.31 * s)
@@ -979,18 +1318,28 @@ func _draw_hq_fortress() -> void:
 
 func _draw_spawn_markers() -> void:
 	var spawns: Array = map_data["spawn_positions"]
+	var g_paths: Array = map_data["ground_paths"]
 	var asp: Vector2 = map_data["air_spawn_pos"]
 	var pulse: float = fmod(_time * 1.6, 1.0)
 
-	for sp in spawns:
+	for s_idx in range(spawns.size()):
+		var sp := Vector2(spawns[s_idx])
+		var dir := Vector2.RIGHT
+		if s_idx < g_paths.size():
+			var gp: PackedVector2Array = g_paths[s_idx]
+			if gp.size() >= 2:
+				dir = (gp[1] - gp[0]).normalized()
+				if dir.length_squared() < 0.01:
+					dir = Vector2.RIGHT
+		var perp := Vector2(-dir.y, dir.x)
 		for i in range(3):
 			var offset: float = float(i) * 14.0 + pulse * 14.0
 			var alpha: float = (1.0 - (offset / 56.0)) * 0.86
-			var c: Vector2 = Vector2(sp) + Vector2(offset, 0.0)
+			var c: Vector2 = sp + dir * offset
 			var pts := PackedVector2Array([
-				c + Vector2(-6, -12),
-				c + Vector2(6, 0),
-				c + Vector2(-6, 12),
+				c - dir * 6.0 - perp * 12.0,
+				c + dir * 6.0,
+				c - dir * 6.0 + perp * 12.0,
 			])
 			draw_polyline(pts, Color(0.95, 0.40, 0.20, clampf(alpha, 0.0, 1.0)), 2.8, true)
 
@@ -1318,6 +1667,22 @@ func _draw_buildings() -> void:
 			draw_circle(tk + Vector2(2.5, 3.0), 7.0, Color(0.0, 0.0, 0.0, 0.34))
 			draw_circle(tk, 6.8, Color(0.56, 0.58, 0.56))
 			draw_circle(tk + Vector2(-1.4, -1.4), 4.6, Color(0.72, 0.74, 0.72))
+		elif style == 5:
+			# Neo-Tokyo 2099 dark cyber-skyscraper rooftop with glowing animated neon edge trim & billboard!
+			draw_rect(rect, Color(0.08, 0.10, 0.14))
+			draw_rect(Rect2(rect.position + Vector2(3, 3), rect.size - Vector2(6, 6)), Color(0.13, 0.15, 0.21))
+			var tw_n: float = 0.72 + 0.28 * sin(_time * 3.8 + pos.x * 0.04 + pos.y * 0.03)
+			var neon_c := Color(col.r, col.g, col.b, 0.92 * tw_n)
+			var glow_c := Color(col.r, col.g, col.b, 0.22 * tw_n)
+			# Glowing neon rooftop perimeter trim
+			draw_rect(Rect2(rect.position - Vector2(1, 1), rect.size + Vector2(2, 2)), glow_c, false, 4.5)
+			draw_rect(rect, neon_c, false, 1.8)
+			# Holographic neon rooftop signage bar + blinking red aircraft beacon
+			draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20), Vector2(bw * 0.45, 5.0)), neon_c)
+			draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20 + 8.0), Vector2(bw * 0.28, 3.0)), Color(neon_c.r, neon_c.g, neon_c.b, 0.65))
+			var red_b: float = 0.4 + 0.6 * sin(_time * 5.0 + pos.x)
+			draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 4.5, Color(1.0, 0.15, 0.18, 0.28 * red_b))
+			draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 2.0, Color(1.0, 0.25, 0.25, 0.95 * red_b))
 		elif style == 0:
 			# Town pitched-roof terrace / townhouse
 			draw_rect(Rect2(rect.position - Vector2(1.5, 1.5), rect.size + Vector2(3, 3)), Color(0.16, 0.17, 0.18))
@@ -1365,6 +1730,16 @@ func _draw_oaks() -> void:
 			c_dark = Color(0.08 * s, 0.19 * s, 0.08 * s)
 			c_mid = Color(0.14 * s, 0.29 * s, 0.11 * s)
 			c_lit = Color(0.26 * s, 0.38 * s, 0.14 * s)
+		elif kind == "cypress":
+			# Misty gnarled Cypress Bayou mossy teal-green canopy!
+			c_dark = Color(0.08 * s, 0.16 * s, 0.11 * s)
+			c_mid = Color(0.14 * s, 0.25 * s, 0.16 * s)
+			c_lit = Color(0.24 * s, 0.36 * s, 0.21 * s)
+		elif kind == "alien_pod":
+			# Xenon Prime bioluminescent indigo-violet flora pod!
+			c_dark = Color(0.18 * s, 0.08 * s, 0.30 * s)
+			c_mid = Color(0.34 * s, 0.14 * s, 0.52 * s)
+			c_lit = Color(0.68 * s, 0.24 * s, 0.84 * s)
 		else:
 			# Urban park broad-leaf tree
 			c_dark = Color(0.12 * s, 0.24 * s, 0.11 * s)
@@ -1405,3 +1780,129 @@ func _draw_logs() -> void:
 		draw_line(p - d + Vector2(-0.8, -0.8), p + d + Vector2(-0.8, -0.8), Color(0.36, 0.26, 0.16), 2.4, true)
 		# Green woodland moss clinging to fallen timber log
 		draw_circle(p + d * 0.2, 3.2, Color(0.18, 0.34, 0.14, 0.85))
+
+func _draw_domes() -> void:
+	for dm in _domes:
+		var p: Vector2 = dm["pos"]
+		var r: float = float(dm["r"])
+		var kind: String = String(dm["kind"])
+		var ang: float = float(dm["ang"])
+		var d := Vector2.from_angle(ang)
+		var perp := Vector2(-d.y, d.x)
+
+		# Solar panel wings extending from both sides of the off-world habitat dome!
+		for side: float in [-1.0, 1.0]:
+			var w_c: Vector2 = p + d * (side * (r + 12.0))
+			var wing := PackedVector2Array([
+				w_c - d * 9.0 - perp * 5.0,
+				w_c + d * 9.0 - perp * 5.0,
+				w_c + d * 9.0 + perp * 5.0,
+				w_c - d * 9.0 + perp * 5.0,
+			])
+			draw_colored_polygon(_offset_poly(wing, Vector2(4.0, 5.0)), Color(0.0, 0.0, 0.0, 0.44))
+			draw_colored_polygon(wing, Color(0.10, 0.22, 0.44))
+			draw_polyline(wing, Color(0.45, 0.72, 0.96, 0.78), 1.0, true)
+			draw_line(p + d * (side * r), w_c - d * (side * 8.0), Color(0.72, 0.76, 0.80), 2.4)
+
+		# Deep airless/planetary dome cast shadow
+		draw_circle(p + Vector2(6.5, 7.5), r * 1.02, Color(0.0, 0.0, 0.0, 0.50 if kind == "lunar" else 0.42))
+		# Outer structural ring
+		var rim_c := Color(0.56, 0.58, 0.62) if kind == "lunar" else (Color(0.62, 0.34, 0.24) if kind == "mars" else Color(0.32, 0.54, 0.70))
+		var shell_c := Color(0.84, 0.86, 0.90) if kind == "lunar" else (Color(0.86, 0.78, 0.70) if kind == "mars" else Color(0.76, 0.88, 0.96))
+		draw_circle(p, r, rim_c)
+		draw_circle(p + Vector2(-1.2, -1.2), r * 0.86, shell_c)
+		draw_circle(p + Vector2(-3.2, -3.2), r * 0.48, Color(0.96, 0.98, 1.0, 0.82))
+
+		if kind == "mars":
+			# Translucent green hydroponic greenhouse skylight inside Mars bio-dome!
+			draw_circle(p + Vector2(1.0, 1.0), r * 0.46, Color(0.18, 0.52, 0.26, 0.88))
+			draw_arc(p, r * 0.86, 0.0, TAU, 20, Color(0.92, 0.46, 0.22, 0.72), 1.6, true)
+		elif kind == "europa":
+			# Warm amber thermal skylight glowing inside frozen Europa research pod!
+			draw_circle(p, r * 0.42, Color(1.0, 0.76, 0.28, 0.85))
+			draw_circle(p, r * 0.78, Color(0.20, 0.88, 1.0, 0.16))
+		else:
+			# Geodesic white dome ribs + comms antenna dot
+			draw_line(p - Vector2(r * 0.8, 0), p + Vector2(r * 0.8, 0), Color(0.45, 0.48, 0.54, 0.55), 1.2)
+			draw_line(p - Vector2(0, r * 0.8), p + Vector2(0, r * 0.8), Color(0.45, 0.48, 0.54, 0.55), 1.2)
+			draw_circle(p, 2.5, Color(0.98, 0.72, 0.18))
+
+func _draw_crystals() -> void:
+	for cr in _crystals:
+		var p: Vector2 = cr["pos"]
+		var kind: String = String(cr["kind"])
+		var shards: Array = cr["shards"]
+		var ph: float = float(cr["phase"])
+		var pulse: float = 0.74 + 0.26 * sin(_time * 2.8 + ph)
+
+		var c_dark: Color
+		var c_mid: Color
+		var c_lit: Color
+		var glow_col := Color(0, 0, 0, 0)
+		if kind == "obsidian":
+			c_dark = Color(0.06, 0.06, 0.08)
+			c_mid = Color(0.16, 0.14, 0.18)
+			c_lit = Color(0.86, 0.34, 0.10, 0.78)
+			glow_col = Color(1.0, 0.34, 0.06, 0.16 * pulse)
+		elif kind == "ice":
+			c_dark = Color(0.18, 0.44, 0.68)
+			c_mid = Color(0.42, 0.78, 0.94)
+			c_lit = Color(0.88, 0.96, 1.0)
+			glow_col = Color(0.24, 0.84, 1.0, 0.18 * pulse)
+		elif kind == "xeno_cyan":
+			c_dark = Color(0.06, 0.38, 0.52)
+			c_mid = Color(0.14, 0.82, 0.92)
+			c_lit = Color(0.76, 1.0, 1.0)
+			glow_col = Color(0.14, 0.94, 1.0, 0.26 * pulse)
+		else:
+			# xeno_magenta
+			c_dark = Color(0.38, 0.08, 0.44)
+			c_mid = Color(0.86, 0.18, 0.82)
+			c_lit = Color(1.0, 0.76, 0.98)
+			glow_col = Color(0.96, 0.20, 0.88, 0.26 * pulse)
+
+		if glow_col.a > 0.01:
+			draw_circle(p, float(cr["radius"]) * 1.35, glow_col)
+
+		for sh in shards:
+			var ang: float = float(sh["ang"])
+			var slen: float = float(sh["len"])
+			var sw: float = float(sh["w"])
+			var dir := Vector2.from_angle(ang)
+			var perp := Vector2(-dir.y, dir.x)
+			var poly := PackedVector2Array([
+				p - perp * sw,
+				p + dir * slen,
+				p + perp * sw,
+				p - dir * (sw * 0.6),
+			])
+			draw_colored_polygon(_offset_poly(poly, Vector2(5.0, 6.0)), Color(0.0, 0.0, 0.0, 0.38))
+			draw_colored_polygon(poly, c_dark)
+			var lit_face := PackedVector2Array([p, p + dir * slen, p - perp * sw])
+			draw_colored_polygon(lit_face, c_mid)
+			draw_line(p, p + dir * (slen * 0.92), c_lit, 1.6, true)
+
+func _draw_ambient_motes() -> void:
+	for mt in _ambient_motes:
+		var p := Vector2(float(mt["x"]), float(mt["y"]))
+		var r: float = float(mt["r"])
+		var ph: float = float(mt["phase"])
+		var kind: String = String(mt["kind"])
+		var tw: float = 0.45 + 0.55 * sin(_time * 4.2 + ph)
+
+		if kind == "ember":
+			draw_circle(p, r * 2.2, Color(1.0, 0.38, 0.06, 0.22 * tw))
+			draw_circle(p, r, Color(1.0, 0.78, 0.22, 0.88 * tw))
+		elif kind == "firefly":
+			draw_circle(p, r * 2.8, Color(0.68, 1.0, 0.28, 0.22 * tw))
+			draw_circle(p, r * 0.85, Color(0.88, 1.0, 0.55, 0.92 * tw))
+		elif kind == "rain":
+			var tail := p - Vector2(5.0, r)
+			var rc := Color(0.45, 0.88, 1.0, 0.24) if sin(ph) > 0.0 else Color(1.0, 0.44, 0.86, 0.22)
+			draw_line(tail, p, rc, 1.1, true)
+		elif kind == "mars_dust":
+			draw_circle(p, r, Color(0.84, 0.44, 0.26, 0.28 * tw))
+		elif kind == "spore":
+			var sc := Color(0.18, 0.96, 1.0) if sin(ph) > 0.0 else Color(0.98, 0.28, 0.92)
+			draw_circle(p, r * 2.6, Color(sc.r, sc.g, sc.b, 0.22 * tw))
+			draw_circle(p, r * 0.9, Color(sc.r, sc.g, sc.b, 0.90 * tw))

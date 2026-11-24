@@ -16,6 +16,14 @@ static func get_all_maps() -> Array[Dictionary]:
 		get_cotswold_vale(),
 		get_whisperwood(),
 		get_red_centre(),
+		get_coral_atoll(),
+		get_obsidian_caldera(),
+		get_bayou_delta(),
+		get_neon_tokyo(),
+		get_tranquility_crater(),
+		get_olympus_rift(),
+		get_europa_abyss(),
+		get_xenon_prime(),
 	]
 
 static func get_map_by_id(map_id: String) -> Dictionary:
@@ -288,115 +296,103 @@ static func get_scorched_wadi() -> Dictionary:
 	}
 
 static func get_frostline_pass() -> Dictionary:
-	# Twin-Bridge Glacial Pass: Dual independent arctic highways crossing North & South bridges,
-	# squeezing near a high-value central ridge before converging at East HQ.
-	var lane_north_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 220),
-		Vector2(335, 220),
-		Vector2(382, 240),
-		Vector2(398, 285),
-		Vector2(398, 340),
-		Vector2(418, 378),
-		Vector2(462, 390),
-		Vector2(620, 390),
-		Vector2(666, 374),
-		Vector2(685, 330),
-		Vector2(685, 275),
-		Vector2(704, 232),
-		Vector2(748, 220),
-		Vector2(1115, 220),
-		Vector2(1160, 240),
-		Vector2(1176, 288),
-		Vector2(1176, 425),
-		Vector2(1196, 466),
-		Vector2(1245, 480),
-		Vector2(1515, 480),
+	# SECTOR 03 — TOP-TO-BOTTOM GLACIAL FJORD: Horizontal frozen river across the center,
+	# enemies invading from North-West & North-East across twin VERTICAL bridges toward South HQ!
+	var lane_west_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(260, -60),
+		Vector2(260, 225),
+		Vector2(290, 272),
+		Vector2(355, 290),
+		Vector2(415, 290),
+		Vector2(448, 325),
+		Vector2(455, 390),
+		Vector2(455, 625),
+		Vector2(422, 668),
+		Vector2(355, 682),
+		Vector2(280, 682),
+		Vector2(248, 725),
+		Vector2(248, 805),
+		Vector2(292, 855),
+		Vector2(375, 868),
+		Vector2(800, 868),
 	])
 
-	var lane_south_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 735),
-		Vector2(335, 735),
-		Vector2(382, 715),
-		Vector2(398, 670),
-		Vector2(398, 625),
-		Vector2(418, 588),
-		Vector2(462, 575),
-		Vector2(620, 575),
-		Vector2(666, 592),
-		Vector2(685, 635),
-		Vector2(685, 682),
-		Vector2(704, 722),
-		Vector2(748, 735),
-		Vector2(1115, 735),
-		Vector2(1160, 715),
-		Vector2(1176, 668),
-		Vector2(1176, 535),
-		Vector2(1196, 494),
-		Vector2(1245, 480),
-		Vector2(1515, 480),
+	var lane_east_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1340, -60),
+		Vector2(1340, 225),
+		Vector2(1310, 272),
+		Vector2(1245, 290),
+		Vector2(1185, 290),
+		Vector2(1152, 325),
+		Vector2(1145, 390),
+		Vector2(1145, 625),
+		Vector2(1178, 668),
+		Vector2(1245, 682),
+		Vector2(1320, 682),
+		Vector2(1352, 725),
+		Vector2(1352, 805),
+		Vector2(1308, 855),
+		Vector2(1225, 868),
+		Vector2(800, 868),
 	])
 
 	var air_waypoints: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 480),
-		Vector2(540, 480),
-		Vector2(1015, 480),
-		Vector2(1515, 480),
+		Vector2(800, -60),
+		Vector2(800, 340),
+		Vector2(800, 620),
+		Vector2(800, 868),
 	])
 
 	var river_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(812, -50),
-		Vector2(822, 110),
-		Vector2(825, 220),
-		Vector2(840, 395),
-		Vector2(816, 570),
-		Vector2(825, 735),
-		Vector2(836, 885),
-		Vector2(846, 1020),
+		Vector2(-60, 472),
+		Vector2(220, 488),
+		Vector2(455, 480),
+		Vector2(800, 462),
+		Vector2(1145, 480),
+		Vector2(1380, 488),
+		Vector2(1660, 472),
 	])
 
-	var bridge_north := Vector2(825, 220)
-	var bridge_south := Vector2(825, 735)
+	var bridge_west := {"pos": Vector2(455, 480), "angle": PI * 0.5}
+	var bridge_east := {"pos": Vector2(1145, 480), "angle": PI * 0.5}
 
 	var pads: Array[Vector2] = [
-		# West entry flanks
-		Vector2(155, 118),
-		Vector2(290, 118),
-		Vector2(165, 325),
-		Vector2(285, 325),
-		Vector2(225, 482),
-		Vector2(165, 630),
-		Vector2(285, 630),
-		Vector2(155, 842),
-		Vector2(290, 842),
-		# Central pockets & high-value dual-lane spine
-		Vector2(540, 275),
-		Vector2(490, 482),
-		Vector2(615, 482),
-		Vector2(540, 682),
-		# North & South bridge overlooks
-		Vector2(705, 112),
-		Vector2(955, 112),
-		Vector2(705, 848),
-		Vector2(955, 848),
-		# East Glacial Plateau (between river & HQ convergence)
-		Vector2(958, 335),
-		Vector2(1076, 335),
-		Vector2(958, 482),
-		Vector2(1076, 482),
-		Vector2(958, 625),
-		Vector2(1076, 625),
-		# East HQ perimeter
-		Vector2(1292, 260),
-		Vector2(1355, 378),
-		Vector2(1355, 582),
-		Vector2(1292, 700),
-		Vector2(1455, 295),
+		# Northern Arctic Approaches
+		Vector2(142, 130),
+		Vector2(142, 295),
+		Vector2(385, 135),
+		Vector2(575, 195),
+		Vector2(575, 345),
+		Vector2(800, 155),
+		Vector2(800, 320),
+		Vector2(1025, 195),
+		Vector2(1025, 345),
+		Vector2(1215, 135),
+		Vector2(1458, 130),
+		Vector2(1458, 295),
+		# Southern Glacial Bank & HQ Fortress Perimeter
+		Vector2(135, 620),
+		Vector2(135, 795),
+		Vector2(325, 588),
+		Vector2(575, 615),
+		Vector2(575, 760),
+		Vector2(685, 685),
+		Vector2(800, 615),
+		Vector2(800, 735),
+		Vector2(915, 685),
+		Vector2(1025, 615),
+		Vector2(1025, 760),
+		Vector2(1275, 588),
+		Vector2(1465, 620),
+		Vector2(1465, 795),
+		Vector2(445, 775),
+		Vector2(1155, 775),
 	]
 
-	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
-	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
-	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
-	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var coarse_w := _smooth_chaikin(lane_west_raw, 2)
+	var coarse_e := _smooth_chaikin(lane_east_raw, 2)
+	var smooth_w := _subdivide_polyline(coarse_w, 18.0)
+	var smooth_e := _subdivide_polyline(coarse_e, 18.0)
 	var smooth_river := _smooth_chaikin(river_raw, 3)
 	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
 
@@ -405,151 +401,135 @@ static func get_frostline_pass() -> Dictionary:
 		"index": 3,
 		"short_name": "FROSTLINE PASS",
 		"name": "SECTOR 03 — FROSTLINE PASS",
-		"tag": "TUNDRA • 2 BRIDGES • 17 WAVES",
+		"tag": "TUNDRA • NORTH→SOUTH • 17 WAVES",
 		"biome": "tundra",
 		"biome_id": 2,
 		"seed": 6129443,
 		"hp_scale": 1.28,
 		"cash_bonus": 40,
-		"briefing": "Heavy winter convoys are breaching both the North and South glacial bridges simultaneously while strike wings dive straight down the central blizzard corridor. Hold the central spine and lock down both crossings.",
+		"briefing": "Heavy winter convoys are descending from the northern glacier across two vertical ice bridges spanning the East-West fjord while gunships dive straight south toward Arctic HQ.",
 		"width": MAP_WIDTH,
 		"height": MAP_HEIGHT,
-		"ground_paths": [smooth_n, smooth_s],
-		"ground_coarses": [coarse_n, coarse_s],
+		"ground_paths": [smooth_w, smooth_e],
+		"ground_coarses": [coarse_w, coarse_e],
 		"air_path": smooth_air,
 		"river_points": smooth_river,
-		"bridge_pos": bridge_north,
-		"bridges": [bridge_north, bridge_south],
-		"base_pos": Vector2(1515, 480),
-		"spawn_positions": [Vector2(18, 220), Vector2(18, 735)],
-		"air_spawn_pos": Vector2(18, 480),
+		"bridge_pos": Vector2(455, 480),
+		"bridges": [bridge_west, bridge_east],
+		"base_pos": Vector2(800, 868),
+		"spawn_positions": [Vector2(260, 18), Vector2(1340, 18)],
+		"air_spawn_pos": Vector2(800, 18),
 		"pads": pads,
 		"sandbags": [
-			{"pos": Vector2(742, 162), "angle": 0.32},
-			{"pos": Vector2(910, 162), "angle": -0.32},
-			{"pos": Vector2(742, 795), "angle": -0.32},
-			{"pos": Vector2(910, 795), "angle": 0.32},
-			{"pos": Vector2(1425, 415), "angle": 0.0},
-			{"pos": Vector2(1425, 545), "angle": 0.0},
+			{"pos": Vector2(395, 392), "angle": 0.30},
+			{"pos": Vector2(515, 392), "angle": -0.30},
+			{"pos": Vector2(1085, 392), "angle": 0.30},
+			{"pos": Vector2(1205, 392), "angle": -0.30},
 		],
 		"bunkers": [
-			{"pos": Vector2(540, 145), "angle": PI * 0.5},
-			{"pos": Vector2(540, 815), "angle": -PI * 0.5},
-			{"pos": Vector2(1445, 680), "angle": -PI * 0.75},
+			{"pos": Vector2(685, 240), "angle": 0.0},
+			{"pos": Vector2(915, 240), "angle": PI},
 		],
 	}
 
 static func get_granite_gorge() -> Dictionary:
-	# High-Altitude Mountain Valleys: Two deep winding canyon roads carving around towering
-	# snow-capped granite massifs, crossing twin mountain gorge bridges to the East Citadel.
-	var lane_north_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 175),
-		Vector2(320, 175),
-		Vector2(368, 198),
-		Vector2(388, 250),
-		Vector2(388, 415),
-		Vector2(412, 462),
-		Vector2(465, 480),
-		Vector2(650, 480),
-		Vector2(698, 458),
-		Vector2(720, 405),
-		Vector2(720, 245),
-		Vector2(742, 198),
-		Vector2(792, 185),
-		Vector2(1128, 185),
-		Vector2(1174, 208),
-		Vector2(1194, 260),
-		Vector2(1194, 438),
-		Vector2(1218, 482),
-		Vector2(1268, 500),
-		Vector2(1515, 500),
+	# SECTOR 04 — GIANT 3-TIER MOUNTAIN SWITCHBACK + SOUTH CANYON SHORTCUT:
+	# Convoys snake across the entire massif (West->East->West->East) over a diagonal mountain gorge!
+	var lane_switchback_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 815),
+		Vector2(1240, 815),
+		Vector2(1310, 792),
+		Vector2(1335, 725),
+		Vector2(1335, 585),
+		Vector2(1308, 520),
+		Vector2(1240, 495),
+		Vector2(325, 495),
+		Vector2(255, 470),
+		Vector2(230, 405),
+		Vector2(230, 265),
+		Vector2(255, 200),
+		Vector2(325, 175),
+		Vector2(1495, 175),
 	])
 
-	var lane_south_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 795),
-		Vector2(465, 795),
-		Vector2(515, 775),
-		Vector2(540, 725),
-		Vector2(540, 695),
-		Vector2(564, 658),
-		Vector2(615, 648),
-		Vector2(755, 648),
-		Vector2(802, 668),
-		Vector2(826, 720),
-		Vector2(842, 772),
-		Vector2(890, 795),
-		Vector2(1148, 795),
-		Vector2(1192, 772),
-		Vector2(1212, 720),
-		Vector2(1212, 562),
-		Vector2(1234, 518),
-		Vector2(1280, 500),
-		Vector2(1515, 500),
+	var lane_shortcut_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1110, 1020),
+		Vector2(1110, 880),
+		Vector2(1150, 830),
+		Vector2(1240, 815),
+		Vector2(1310, 792),
+		Vector2(1335, 725),
+		Vector2(1335, 585),
+		Vector2(1308, 520),
+		Vector2(1240, 495),
+		Vector2(325, 495),
+		Vector2(255, 470),
+		Vector2(230, 405),
+		Vector2(230, 265),
+		Vector2(255, 200),
+		Vector2(325, 175),
+		Vector2(1495, 175),
 	])
 
 	var air_waypoints: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 115),
-		Vector2(540, 320),
-		Vector2(1040, 485),
-		Vector2(1515, 500),
+		Vector2(-60, 845),
+		Vector2(540, 610),
+		Vector2(1040, 385),
+		Vector2(1495, 175),
 	])
 
 	var river_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(930, -50),
-		Vector2(945, 92),
-		Vector2(956, 185),
-		Vector2(972, 370),
-		Vector2(986, 580),
-		Vector2(996, 795),
-		Vector2(1012, 912),
-		Vector2(1025, 1020),
+		Vector2(965, -50),
+		Vector2(920, 175),
+		Vector2(855, 345),
+		Vector2(785, 495),
+		Vector2(705, 665),
+		Vector2(635, 815),
+		Vector2(565, 1020),
 	])
 
-	var bridge_north := Vector2(956, 185)
-	var bridge_south := Vector2(996, 795)
+	var bridge_high := {"pos": Vector2(920, 175), "angle": 0.0}
+	var bridge_mid := {"pos": Vector2(785, 495), "angle": 0.0}
+	var bridge_low := {"pos": Vector2(635, 815), "angle": 0.0}
 
 	var pads: Array[Vector2] = [
-		# Northwest pass ledges
-		Vector2(155, 86),
-		Vector2(295, 86),
-		Vector2(282, 285),
-		Vector2(282, 445),
-		# Southwest ravine ledges
-		Vector2(175, 690),
-		Vector2(360, 690),
-		Vector2(240, 886),
-		Vector2(440, 886),
-		# Central valley hairpin & ridge overlooks
-		Vector2(555, 188),
-		Vector2(555, 365),
-		Vector2(455, 580),
-		Vector2(665, 565),
-		Vector2(688, 752),
-		# North & South mountain gorge bridge overlooks
-		Vector2(835, 92),
-		Vector2(1082, 92),
-		Vector2(865, 888),
-		Vector2(1130, 888),
-		# West gorge cliff ledges
-		Vector2(842, 325),
-		Vector2(855, 495),
-		# East gorge ridge (between roaring river & east climb)
-		Vector2(1088, 315),
-		Vector2(1095, 470),
-		Vector2(1102, 625),
-		# East Mountain Citadel perimeter
-		Vector2(1308, 245),
-		Vector2(1355, 385),
-		Vector2(1355, 615),
-		Vector2(1308, 755),
-		Vector2(1455, 315),
-		Vector2(1455, 685),
+		# High Summit Ridge (North)
+		Vector2(135, 115),
+		Vector2(365, 82),
+		Vector2(565, 82),
+		Vector2(765, 82),
+		Vector2(1075, 82),
+		Vector2(1285, 82),
+		# Upper Valley Terrace (Between High & Mid switchbacks)
+		Vector2(122, 335),
+		Vector2(365, 335),
+		Vector2(535, 335),
+		Vector2(700, 335),
+		Vector2(1015, 335),
+		Vector2(1185, 335),
+		Vector2(1355, 335),
+		Vector2(1485, 335),
+		# Lower Valley Terrace (Between Mid & Low switchbacks)
+		Vector2(165, 655),
+		Vector2(365, 655),
+		Vector2(540, 655),
+		Vector2(855, 655),
+		Vector2(1020, 655),
+		Vector2(1185, 655),
+		Vector2(1455, 585),
+		Vector2(1455, 745),
+		# Southern Foothills
+		Vector2(215, 902),
+		Vector2(435, 902),
+		Vector2(835, 902),
+		Vector2(975, 902),
+		Vector2(1285, 902),
 	]
 
-	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
-	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
-	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
-	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var coarse_a := _smooth_chaikin(lane_switchback_raw, 2)
+	var coarse_b := _smooth_chaikin(lane_shortcut_raw, 2)
+	var smooth_a := _subdivide_polyline(coarse_a, 18.0)
+	var smooth_b := _subdivide_polyline(coarse_b, 18.0)
 	var smooth_river := _smooth_chaikin(river_raw, 3)
 	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
 
@@ -558,37 +538,33 @@ static func get_granite_gorge() -> Dictionary:
 		"index": 4,
 		"short_name": "GRANITE GORGE",
 		"name": "SECTOR 04 — GRANITE GORGE",
-		"tag": "MOUNTAIN • 2 VALLEYS • 18 WAVES",
+		"tag": "MOUNTAIN • SWITCHBACK • 18 WAVES",
 		"biome": "mountain",
 		"biome_id": 3,
 		"seed": 3187651,
 		"hp_scale": 1.40,
 		"cash_bonus": 60,
-		"briefing": "Enemy armor divisions are snaking through deep granite mountain valleys and switchbacks beneath snow-capped peaks while bombers sweep over the high ridge. Fortify the cliffside overlooks and hold the gorge bridges.",
+		"briefing": "Enemy armor is climbing the massive 3-tier Granite Gorge switchbacks—crossing the diagonal glacier torrent three times—while raiders flank up the South-East ravine toward Summit Citadel.",
 		"width": MAP_WIDTH,
 		"height": MAP_HEIGHT,
-		"ground_paths": [smooth_n, smooth_s],
-		"ground_coarses": [coarse_n, coarse_s],
+		"ground_paths": [smooth_a, smooth_b],
+		"ground_coarses": [coarse_a, coarse_b],
 		"air_path": smooth_air,
 		"river_points": smooth_river,
-		"bridge_pos": bridge_north,
-		"bridges": [bridge_north, bridge_south],
-		"base_pos": Vector2(1515, 500),
-		"spawn_positions": [Vector2(18, 175), Vector2(18, 795)],
-		"air_spawn_pos": Vector2(18, 145),
+		"bridge_pos": Vector2(785, 495),
+		"bridges": [bridge_high, bridge_mid, bridge_low],
+		"base_pos": Vector2(1495, 175),
+		"spawn_positions": [Vector2(18, 815), Vector2(1110, 942)],
+		"air_spawn_pos": Vector2(18, 815),
 		"pads": pads,
 		"sandbags": [
-			{"pos": Vector2(872, 130), "angle": 0.30},
-			{"pos": Vector2(1042, 130), "angle": -0.30},
-			{"pos": Vector2(912, 852), "angle": -0.30},
-			{"pos": Vector2(1082, 852), "angle": 0.30},
-			{"pos": Vector2(1425, 435), "angle": 0.0},
-			{"pos": Vector2(1425, 565), "angle": 0.0},
+			{"pos": Vector2(842, 118), "angle": 0.28},
+			{"pos": Vector2(998, 118), "angle": -0.28},
+			{"pos": Vector2(705, 438), "angle": 0.28},
+			{"pos": Vector2(865, 438), "angle": -0.28},
 		],
 		"bunkers": [
-			{"pos": Vector2(160, 480), "angle": 0.12},
-			{"pos": Vector2(555, 868), "angle": -PI * 0.5},
-			{"pos": Vector2(1435, 165), "angle": PI * 0.78},
+			{"pos": Vector2(1465, 465), "angle": PI},
 		],
 	}
 
@@ -1002,117 +978,102 @@ static func get_cotswold_vale() -> Dictionary:
 	}
 
 static func get_whisperwood() -> Dictionary:
-	# SECTOR 07 — DEEP DENSE FOREST: Winding muddy logging trails through ancient emerald
-	# woodland clearings, crossing twin mossy timber bridges over a dark woodland creek.
-	var lane_north_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 235),
-		Vector2(290, 235),
-		Vector2(340, 210),
-		Vector2(365, 165),
-		Vector2(415, 145),
-		Vector2(545, 145),
-		Vector2(595, 175),
-		Vector2(620, 225),
-		Vector2(665, 235),
-		Vector2(945, 235),
-		Vector2(998, 262),
-		Vector2(1022, 322),
-		Vector2(1022, 415),
-		Vector2(1062, 458),
-		Vector2(1195, 458),
-		Vector2(1248, 430),
-		Vector2(1272, 370),
-		Vector2(1272, 265),
-		Vector2(1318, 225),
-		Vector2(1415, 225),
-		Vector2(1465, 270),
-		Vector2(1480, 385),
+	# SECTOR 07 — WHISPERWOOD FIGURE-8 CROSSROADS: Two forest logging trails physically CROSS
+	# in a central sunlit X-clearing before splitting to twin eastern woodland creek bridges!
+	var lane_a_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 175),
+		Vector2(305, 175),
+		Vector2(380, 200),
+		Vector2(505, 345),
+		Vector2(630, 480),
+		Vector2(760, 620),
+		Vector2(860, 745),
+		Vector2(945, 775),
+		Vector2(1245, 775),
+		Vector2(1310, 748),
+		Vector2(1345, 680),
+		Vector2(1375, 560),
+		Vector2(1420, 495),
 		Vector2(1515, 480),
 	])
 
-	var lane_south_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 730),
-		Vector2(290, 730),
-		Vector2(340, 755),
-		Vector2(365, 800),
-		Vector2(415, 818),
-		Vector2(545, 818),
-		Vector2(595, 788),
-		Vector2(620, 742),
-		Vector2(665, 730),
-		Vector2(965, 730),
-		Vector2(1018, 700),
-		Vector2(1042, 642),
-		Vector2(1068, 595),
-		Vector2(1130, 580),
-		Vector2(1265, 580),
-		Vector2(1318, 608),
-		Vector2(1342, 668),
-		Vector2(1365, 720),
-		Vector2(1415, 735),
-		Vector2(1465, 690),
-		Vector2(1480, 575),
+	var lane_b_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 785),
+		Vector2(305, 785),
+		Vector2(380, 760),
+		Vector2(505, 615),
+		Vector2(630, 480),
+		Vector2(760, 340),
+		Vector2(860, 215),
+		Vector2(945, 185),
+		Vector2(1245, 185),
+		Vector2(1310, 212),
+		Vector2(1345, 280),
+		Vector2(1375, 400),
+		Vector2(1420, 465),
 		Vector2(1515, 480),
 	])
 
 	var air_waypoints: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 145),
-		Vector2(520, 365),
-		Vector2(1030, 555),
+		Vector2(-60, 480),
+		Vector2(630, 480),
+		Vector2(1100, 480),
 		Vector2(1515, 480),
 	])
 
 	var river_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(732, -50),
-		Vector2(738, 120),
-		Vector2(745, 235),
-		Vector2(768, 405),
-		Vector2(735, 575),
-		Vector2(745, 730),
-		Vector2(762, 885),
-		Vector2(775, 1020),
+		Vector2(1078, -50),
+		Vector2(1082, 95),
+		Vector2(1085, 185),
+		Vector2(1105, 385),
+		Vector2(1065, 585),
+		Vector2(1085, 775),
+		Vector2(1098, 900),
+		Vector2(1110, 1020),
 	])
 
-	var bridge_north := Vector2(745, 235)
-	var bridge_south := Vector2(745, 730)
+	var bridge_north := {"pos": Vector2(1085, 185), "angle": 0.0}
+	var bridge_south := {"pos": Vector2(1085, 775), "angle": 0.0}
 
 	var pads: Array[Vector2] = [
-		# West Woodland Clearings
-		Vector2(148, 130),
-		Vector2(265, 130),
-		Vector2(155, 345),
-		Vector2(285, 345),
-		Vector2(215, 480),
-		Vector2(155, 618),
-		Vector2(285, 618),
-		Vector2(148, 835),
-		Vector2(265, 835),
-		# Central Logging Glades (West of creek)
-		Vector2(478, 265),
-		Vector2(478, 412),
-		Vector2(615, 385),
-		Vector2(478, 552),
-		Vector2(615, 575),
-		Vector2(478, 700),
-		# Creek Overlooks (East of creek)
-		Vector2(875, 118),
-		Vector2(885, 365),
-		Vector2(885, 595),
-		Vector2(875, 845),
-		# Deep Eastern Timber Clearings
-		Vector2(1148, 225),
-		Vector2(1148, 348),
-		Vector2(1148, 708),
-		Vector2(1148, 835),
-		Vector2(1375, 345),
-		Vector2(1365, 480),
-		Vector2(1242, 715),
+		# West Timber Approaches
+		Vector2(145, 82),
+		Vector2(290, 82),
+		Vector2(148, 305),
+		Vector2(285, 340),
+		Vector2(175, 480),
+		Vector2(345, 480),
+		Vector2(148, 655),
+		Vector2(285, 620),
+		Vector2(145, 878),
+		Vector2(290, 878),
+		# Central X-Crossroads Killzone!
+		Vector2(630, 185),
+		Vector2(630, 320),
+		Vector2(495, 480),
+		Vector2(775, 480),
+		Vector2(630, 640),
+		Vector2(630, 775),
+		Vector2(465, 878),
+		Vector2(465, 82),
+		# West Creek Bank
+		Vector2(955, 84),
+		Vector2(950, 355),
+		Vector2(950, 605),
+		Vector2(955, 876),
+		# East Creek Bank & Forest HQ Perimeter
+		Vector2(1215, 84),
+		Vector2(1218, 335),
+		Vector2(1218, 480),
+		Vector2(1218, 625),
+		Vector2(1215, 876),
+		Vector2(1445, 295),
 	]
 
-	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
-	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
-	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
-	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var coarse_a := _smooth_chaikin(lane_a_raw, 2)
+	var coarse_b := _smooth_chaikin(lane_b_raw, 2)
+	var smooth_a := _subdivide_polyline(coarse_a, 18.0)
+	var smooth_b := _subdivide_polyline(coarse_b, 18.0)
 	var smooth_river := _smooth_chaikin(river_raw, 3)
 	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
 
@@ -1121,140 +1082,132 @@ static func get_whisperwood() -> Dictionary:
 		"index": 7,
 		"short_name": "WHISPERWOOD",
 		"name": "SECTOR 07 — WHISPERWOOD FOREST",
-		"tag": "FOREST • 2 TRAILS • 21 WAVES",
+		"tag": "FOREST • X-CROSSING • 21 WAVES",
 		"biome": "forest",
 		"biome_id": 7,
 		"seed": 7712904,
 		"hp_scale": 1.66,
 		"cash_bonus": 105,
-		"briefing": "Armored columns are pushing deep through Whisperwood's dense ancient timber trails, crossing two mossy woodland bridges while gunships skim the canopy. Fortify the forest clearings and seal both trails.",
+		"briefing": "Two forest logging convoys cross directly through Whisperwood's central sunlit X-clearing before splitting toward twin eastern creek bridges. Dominate the central crossroads!",
 		"width": MAP_WIDTH,
 		"height": MAP_HEIGHT,
-		"ground_paths": [smooth_n, smooth_s],
-		"ground_coarses": [coarse_n, coarse_s],
+		"ground_paths": [smooth_a, smooth_b],
+		"ground_coarses": [coarse_a, coarse_b],
 		"air_path": smooth_air,
 		"river_points": smooth_river,
-		"bridge_pos": bridge_north,
+		"bridge_pos": Vector2(1085, 185),
 		"bridges": [bridge_north, bridge_south],
 		"base_pos": Vector2(1515, 480),
-		"spawn_positions": [Vector2(18, 235), Vector2(18, 730)],
-		"air_spawn_pos": Vector2(18, 175),
+		"spawn_positions": [Vector2(18, 175), Vector2(18, 785)],
+		"air_spawn_pos": Vector2(18, 480),
 		"pads": pads,
 		"sandbags": [
-			{"pos": Vector2(665, 175), "angle": 0.25},
-			{"pos": Vector2(825, 175), "angle": -0.25},
-			{"pos": Vector2(665, 790), "angle": -0.25},
-			{"pos": Vector2(825, 790), "angle": 0.25},
+			{"pos": Vector2(1005, 130), "angle": 0.25},
+			{"pos": Vector2(1165, 130), "angle": -0.25},
+			{"pos": Vector2(1005, 830), "angle": -0.25},
+			{"pos": Vector2(1165, 830), "angle": 0.25},
 		],
 		"bunkers": [
-			{"pos": Vector2(615, 480), "angle": 0.0},
-			{"pos": Vector2(1265, 835), "angle": -PI * 0.5},
+			{"pos": Vector2(1455, 685), "angle": -PI * 0.78},
 		],
 	}
 
 static func get_red_centre() -> Dictionary:
-	# SECTOR 08 — THE AUSTRALIAN OUTBACK: Deep iron-oxide crimson red earth, Uluru-style
-	# sandstone mesas, eucalyptus ghost gums, spinifex tufts, high-speed corrugated red-dirt
-	# highways crossing a muddy billabong creek toward Outback Command Base.
+	# SECTOR 08 — THE AUSTRALIAN OUTBACK: 3-FRONT CONVERGENCE!
+	# Three separate red-dirt tracks pour in from NORTH, WEST, and SOUTH-WEST across a diagonal
+	# Billabong creek spanned by THREE bridges converging on East-South Outback Station!
 	var lane_north_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 195),
-		Vector2(395, 195),
-		Vector2(448, 222),
-		Vector2(470, 285),
-		Vector2(470, 395),
-		Vector2(505, 442),
-		Vector2(695, 442),
-		Vector2(742, 405),
-		Vector2(762, 335),
-		Vector2(762, 255),
-		Vector2(802, 210),
-		Vector2(1155, 210),
-		Vector2(1202, 238),
-		Vector2(1222, 300),
-		Vector2(1222, 425),
-		Vector2(1262, 475),
-		Vector2(1515, 475),
+		Vector2(360, -60),
+		Vector2(360, 155),
+		Vector2(405, 200),
+		Vector2(1265, 200),
+		Vector2(1340, 232),
+		Vector2(1370, 305),
+		Vector2(1370, 520),
+		Vector2(1405, 588),
+		Vector2(1495, 610),
+	])
+
+	var lane_mid_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 485),
+		Vector2(540, 485),
+		Vector2(635, 445),
+		Vector2(760, 445),
+		Vector2(845, 485),
+		Vector2(1245, 485),
+		Vector2(1335, 530),
+		Vector2(1395, 595),
+		Vector2(1495, 610),
 	])
 
 	var lane_south_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 765),
-		Vector2(425, 765),
-		Vector2(478, 740),
-		Vector2(502, 682),
-		Vector2(502, 635),
-		Vector2(545, 595),
-		Vector2(725, 595),
-		Vector2(768, 635),
-		Vector2(788, 705),
-		Vector2(825, 755),
-		Vector2(1155, 755),
-		Vector2(1202, 728),
-		Vector2(1222, 665),
-		Vector2(1222, 530),
-		Vector2(1262, 475),
-		Vector2(1515, 475),
+		Vector2(-60, 810),
+		Vector2(1185, 810),
+		Vector2(1265, 780),
+		Vector2(1330, 710),
+		Vector2(1395, 635),
+		Vector2(1495, 610),
 	])
 
 	var air_waypoints: PackedVector2Array = PackedVector2Array([
-		Vector2(-60, 480),
-		Vector2(560, 515),
-		Vector2(1040, 445),
-		Vector2(1515, 475),
+		Vector2(120, -60),
+		Vector2(620, 260),
+		Vector2(1080, 440),
+		Vector2(1495, 610),
 	])
 
 	var river_raw: PackedVector2Array = PackedVector2Array([
-		Vector2(908, -50),
-		Vector2(915, 100),
-		Vector2(920, 210),
-		Vector2(938, 390),
-		Vector2(905, 585),
-		Vector2(920, 755),
-		Vector2(932, 895),
-		Vector2(945, 1020),
+		Vector2(1195, -50),
+		Vector2(1115, 200),
+		Vector2(1025, 485),
+		Vector2(925, 810),
+		Vector2(860, 1020),
 	])
 
-	var bridge_north := Vector2(920, 210)
-	var bridge_south := Vector2(920, 755)
+	var bridge_n := {"pos": Vector2(1115, 200), "angle": 0.0}
+	var bridge_m := {"pos": Vector2(1025, 485), "angle": 0.0}
+	var bridge_s := {"pos": Vector2(925, 810), "angle": 0.0}
 
 	var pads: Array[Vector2] = [
-		# West Red-Dirt Highway Approaches
-		Vector2(160, 96),
-		Vector2(335, 96),
-		Vector2(165, 305),
-		Vector2(355, 305),
-		Vector2(245, 485),
-		Vector2(165, 658),
-		Vector2(355, 658),
-		Vector2(175, 865),
-		Vector2(365, 865),
-		# Central Outback Mesa & Spinifex Flats
-		Vector2(615, 225),
-		Vector2(615, 338),
-		Vector2(615, 518),
-		Vector2(615, 725),
-		Vector2(615, 855),
-		# Billabong Crossing Overlooks
-		Vector2(805, 104),
-		Vector2(1045, 104),
-		Vector2(805, 862),
-		Vector2(1045, 862),
-		# East Billabong Flats (between creek & east convergence)
-		Vector2(1058, 325),
-		Vector2(1122, 418),
-		Vector2(1042, 480),
-		Vector2(1122, 542),
-		Vector2(1058, 638),
-		# Outback Station HQ Perimeter
-		Vector2(1335, 255),
-		Vector2(1365, 375),
-		Vector2(1365, 580),
-		Vector2(1335, 705),
-		Vector2(1465, 315),
+		# Northwest Outback Flats
+		Vector2(155, 130),
+		Vector2(235, 285),
+		Vector2(155, 365),
+		Vector2(490, 92),
+		Vector2(685, 92),
+		Vector2(885, 92),
+		# Between North & Mid Tracks
+		Vector2(465, 335),
+		Vector2(645, 325),
+		Vector2(825, 325),
+		Vector2(965, 335),
+		# Between Mid & South Tracks
+		Vector2(155, 645),
+		Vector2(345, 645),
+		Vector2(535, 645),
+		Vector2(725, 645),
+		Vector2(865, 645),
+		# Southern Spinifex Verge
+		Vector2(225, 902),
+		Vector2(465, 902),
+		Vector2(725, 902),
+		# East of Billabong Creek
+		Vector2(1245, 92),
+		Vector2(1225, 338),
+		Vector2(1165, 645),
+		Vector2(1065, 902),
+		Vector2(1275, 895),
+		# Station HQ Perimeter
+		Vector2(1475, 275),
+		Vector2(1475, 445),
+		Vector2(1465, 765),
 	]
 
 	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_m := _smooth_chaikin(lane_mid_raw, 2)
 	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
 	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_m := _subdivide_polyline(coarse_m, 18.0)
 	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
 	var smooth_river := _smooth_chaikin(river_raw, 3)
 	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
@@ -1264,37 +1217,1059 @@ static func get_red_centre() -> Dictionary:
 		"index": 8,
 		"short_name": "RED CENTRE",
 		"name": "SECTOR 08 — THE AUSTRALIAN OUTBACK",
-		"tag": "OUTBACK • FINAL • 22 WAVES",
+		"tag": "OUTBACK • 3 LANES • 22 WAVES",
 		"biome": "outback",
 		"biome_id": 8,
 		"seed": 8806142,
 		"hp_scale": 1.78,
 		"cash_bonus": 120,
-		"briefing": "Heavy mechanized battalions are roaring across the blistering iron-red tracks of the Australian Outback toward Outback Command. Hold the Billabong crossings and survive the relentless 22-wave endurance assault.",
+		"briefing": "Three mechanized divisions are converging from the North, West, and South-West across the blistering iron-red tracks of the Outback! Guard all three Billabong crossings before they overwhelm Station HQ.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_m, smooth_s],
+		"ground_coarses": [coarse_n, coarse_m, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": Vector2(1025, 485),
+		"bridges": [bridge_n, bridge_m, bridge_s],
+		"base_pos": Vector2(1495, 610),
+		"spawn_positions": [Vector2(360, 18), Vector2(18, 485), Vector2(18, 810)],
+		"air_spawn_pos": Vector2(150, 18),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(1035, 145), "angle": 0.28},
+			{"pos": Vector2(1195, 145), "angle": -0.28},
+			{"pos": Vector2(945, 430), "angle": 0.28},
+			{"pos": Vector2(1105, 430), "angle": -0.28},
+		],
+		"bunkers": [],
+	}
+
+static func get_coral_atoll() -> Dictionary:
+	# SECTOR 09 — PACIFIC CORAL ATOLL: True aerial coral atoll ring surrounded by deep Pacific Ocean,
+	# a wide glowing turquoise coral lagoon, and a Central Palm Island HQ!
+	# Two long ~2,200px opposing ring routes sweep around the outer sandy islets before crossing
+	# North & South vertical lagoon bridges and spiraling into the Central Island Citadel!
+	var lane_west_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 775),
+		Vector2(130, 775),
+		Vector2(168, 742),
+		Vector2(175, 685),
+		Vector2(175, 225),
+		Vector2(198, 168),
+		Vector2(265, 148),
+		Vector2(745, 148),
+		Vector2(792, 178),
+		Vector2(800, 232),
+		Vector2(800, 345),
+		Vector2(768, 378),
+		Vector2(620, 378),
+		Vector2(575, 412),
+		Vector2(575, 452),
+		Vector2(615, 480),
+		Vector2(800, 480),
+	])
+
+	var lane_east_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 185),
+		Vector2(1470, 185),
+		Vector2(1432, 218),
+		Vector2(1425, 275),
+		Vector2(1425, 735),
+		Vector2(1402, 792),
+		Vector2(1335, 812),
+		Vector2(855, 812),
+		Vector2(808, 782),
+		Vector2(800, 728),
+		Vector2(800, 615),
+		Vector2(832, 582),
+		Vector2(980, 582),
+		Vector2(1025, 548),
+		Vector2(1025, 508),
+		Vector2(985, 480),
+		Vector2(800, 480),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 140),
+		Vector2(380, 305),
+		Vector2(800, 480),
+	])
+
+	# Closed oval turquoise coral lagoon encircling the Central Palm Island (rx=505, ry=210)!
+	var river_raw := PackedVector2Array()
+	var segs: int = 36
+	for i in range(segs + 1):
+		var a: float = float(i) / float(segs) * TAU
+		river_raw.append(Vector2(800.0 + cos(a) * 505.0, 480.0 + sin(a) * 210.0))
+
+	var bridge_north := {"pos": Vector2(800, 270), "angle": PI * 0.5}
+	var bridge_south := {"pos": Vector2(800, 690), "angle": PI * 0.5}
+
+	var pads: Array[Vector2] = [
+		# Outer West Coral Sandbar
+		Vector2(82, 345),
+		Vector2(82, 545),
+		Vector2(268, 255),
+		Vector2(248, 685),
+		# Outer North Coral Islet
+		Vector2(385, 74),
+		Vector2(565, 74),
+		Vector2(725, 74),
+		Vector2(455, 245),
+		Vector2(965, 155),
+		Vector2(1155, 165),
+		Vector2(1315, 225),
+		# Outer East Coral Sandbar
+		Vector2(1518, 415),
+		Vector2(1518, 615),
+		Vector2(1352, 295),
+		Vector2(1332, 705),
+		# Outer South Coral Islet
+		Vector2(1215, 886),
+		Vector2(1035, 886),
+		Vector2(875, 886),
+		Vector2(1145, 715),
+		Vector2(635, 805),
+		Vector2(445, 795),
+		Vector2(285, 745),
+		# Central Palm Island Fortress (inside the turquoise lagoon!)
+		Vector2(435, 480),
+		Vector2(495, 572),
+		Vector2(675, 578),
+		Vector2(925, 382),
+		Vector2(1105, 388),
+		Vector2(1165, 480),
+	]
+
+	var coarse_wn := _smooth_chaikin(lane_west_north_raw, 2)
+	var coarse_es := _smooth_chaikin(lane_east_south_raw, 2)
+	var smooth_wn := _subdivide_polyline(coarse_wn, 18.0)
+	var smooth_es := _subdivide_polyline(coarse_es, 18.0)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "coral_atoll",
+		"index": 9,
+		"short_name": "CORAL ATOLL",
+		"name": "SECTOR 09 — PACIFIC CORAL ATOLL",
+		"tag": "TROPICAL • ATOLL RING • 23 WAVES",
+		"biome": "tropical",
+		"biome_id": 9,
+		"seed": 9012471,
+		"hp_scale": 1.88,
+		"cash_bonus": 135,
+		"briefing": "Amphibious divisions have landed on the outer sandy ring of our Pacific Coral Atoll! Convoys sweep all the way around the palm-fringed atoll islets before crossing the North and South lagoon bridges onto Central Island HQ.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_wn, smooth_es],
+		"ground_coarses": [coarse_wn, coarse_es],
+		"air_path": smooth_air,
+		"river_points": river_raw,
+		"bridge_pos": Vector2(800, 270),
+		"bridges": [bridge_north, bridge_south],
+		"base_pos": Vector2(800, 480),
+		"spawn_positions": [Vector2(18, 775), Vector2(1582, 185)],
+		"air_spawn_pos": Vector2(18, 175),
+		"pads": pads,
+		"sandbags": [
+			{"pos": Vector2(738, 336), "angle": 0.25},
+			{"pos": Vector2(862, 336), "angle": -0.25},
+			{"pos": Vector2(738, 624), "angle": -0.25},
+			{"pos": Vector2(862, 624), "angle": 0.25},
+		],
+		"bunkers": [],
+	}
+
+static func get_obsidian_caldera() -> Dictionary:
+	# SECTOR 10 — OBSIDIAN CALDERA: REVERSE EAST→WEST ASSAULT ACROSS DIAGONAL LAVA RIFT!
+	# Molten magma river slices NW→SE while enemies storm from the EAST toward South-West Forge HQ!
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 180),
+		Vector2(290, 180),
+		Vector2(220, 210),
+		Vector2(195, 285),
+		Vector2(195, 435),
+		Vector2(235, 485),
+		Vector2(490, 485),
+		Vector2(540, 530),
+		Vector2(540, 745),
+		Vector2(495, 800),
+		Vector2(150, 800),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 680),
+		Vector2(1245, 680),
+		Vector2(1185, 725),
+		Vector2(1145, 785),
+		Vector2(1080, 800),
+		Vector2(150, 800),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 125),
+		Vector2(1120, 360),
+		Vector2(620, 590),
+		Vector2(150, 800),
+	])
+
+	# Diagonal molten lava river slicing Top-Left -> Bottom-Right!
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(480, -60),
+		Vector2(620, 180),
+		Vector2(765, 445),
+		Vector2(905, 680),
+		Vector2(970, 800),
+		Vector2(1100, 1020),
+	])
+
+	var bridge_north := {"pos": Vector2(620, 180), "angle": 0.0}
+	var bridge_south := {"pos": Vector2(970, 800), "angle": 0.0}
+
+	var pads: Array[Vector2] = [
+		# Northern Volcanic Rim (West & East of Lava Rift)
+		Vector2(165, 86),
+		Vector2(365, 86),
+		Vector2(775, 86),
+		Vector2(995, 86),
+		Vector2(1215, 86),
+		Vector2(1435, 86),
+		# West Caldera Shelf (Switchback killzone!)
+		Vector2(95, 345),
+		Vector2(345, 340),
+		Vector2(515, 340),
+		Vector2(355, 635),
+		Vector2(135, 635),
+		# Central Magma Ridge
+		Vector2(685, 625),
+		Vector2(800, 900),
+		Vector2(655, 900),
+		Vector2(385, 900),
+		# Eastern Obsidian Plateau (East of Lava Rift)
+		Vector2(855, 315),
+		Vector2(1045, 315),
+		Vector2(1245, 315),
+		Vector2(1445, 315),
+		Vector2(995, 485),
+		Vector2(1185, 485),
+		Vector2(1385, 485),
+		Vector2(1505, 485),
+		Vector2(1145, 600),
+		Vector2(1345, 825),
+		Vector2(1495, 825),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "obsidian_caldera",
+		"index": 10,
+		"short_name": "OBSIDIAN CALDERA",
+		"name": "SECTOR 10 — OBSIDIAN CALDERA",
+		"tag": "VOLCANIC • EAST→WEST • 24 WAVES",
+		"biome": "volcanic",
+		"biome_id": 10,
+		"seed": 1066642,
+		"hp_scale": 1.98,
+		"cash_bonus": 150,
+		"briefing": "Hostile columns are charging WESTWARD across the diagonal molten lava rift toward our South-West Forge! Hold the twin magma bridges and trap the northern column in the caldera hairpin.",
 		"width": MAP_WIDTH,
 		"height": MAP_HEIGHT,
 		"ground_paths": [smooth_n, smooth_s],
 		"ground_coarses": [coarse_n, coarse_s],
 		"air_path": smooth_air,
 		"river_points": smooth_river,
-		"bridge_pos": bridge_north,
+		"bridge_pos": Vector2(620, 180),
 		"bridges": [bridge_north, bridge_south],
-		"base_pos": Vector2(1515, 475),
-		"spawn_positions": [Vector2(18, 195), Vector2(18, 765)],
+		"base_pos": Vector2(150, 800),
+		"spawn_positions": [Vector2(1582, 180), Vector2(1582, 680)],
+		"air_spawn_pos": Vector2(1582, 155),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [
+			{"pos": Vector2(360, 725), "angle": 0.0},
+		],
+	}
+
+static func get_bayou_delta() -> Dictionary:
+	# SECTOR 11 — CYPRESS BAYOU: WINDING HORIZONTAL BAYOU WITH 3 VERTICAL TIMBER BRIDGES!
+	# Convoys weave South -> North -> South back and forth across the foggy marsh river!
+	var lane_main_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 185),
+		Vector2(300, 185),
+		Vector2(355, 220),
+		Vector2(365, 290),
+		Vector2(365, 725),
+		Vector2(405, 775),
+		Vector2(475, 785),
+		Vector2(735, 785),
+		Vector2(785, 745),
+		Vector2(800, 680),
+		Vector2(800, 265),
+		Vector2(835, 200),
+		Vector2(905, 185),
+		Vector2(1175, 185),
+		Vector2(1225, 220),
+		Vector2(1240, 290),
+		Vector2(1240, 755),
+		Vector2(1285, 805),
+		Vector2(1355, 815),
+		Vector2(1495, 815),
+	])
+
+	var lane_flank_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 785),
+		Vector2(735, 785),
+		Vector2(785, 745),
+		Vector2(800, 680),
+		Vector2(800, 265),
+		Vector2(835, 200),
+		Vector2(905, 185),
+		Vector2(1175, 185),
+		Vector2(1225, 220),
+		Vector2(1240, 290),
+		Vector2(1240, 755),
+		Vector2(1285, 805),
+		Vector2(1355, 815),
+		Vector2(1495, 815),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 480),
+		Vector2(560, 560),
+		Vector2(1080, 685),
+		Vector2(1495, 815),
+	])
+
+	# Winding horizontal bayou river West -> East across the map!
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 465),
+		Vector2(180, 445),
+		Vector2(365, 450),
+		Vector2(580, 495),
+		Vector2(800, 515),
+		Vector2(1020, 475),
+		Vector2(1240, 450),
+		Vector2(1440, 470),
+		Vector2(1660, 465),
+	])
+
+	var bridge_w := {"pos": Vector2(365, 450), "angle": PI * 0.5}
+	var bridge_c := {"pos": Vector2(800, 515), "angle": PI * 0.5}
+	var bridge_e := {"pos": Vector2(1240, 450), "angle": PI * 0.5}
+
+	var pads: Array[Vector2] = [
+		# Northern Marsh Islands
+		Vector2(145, 84),
+		Vector2(315, 84),
+		Vector2(145, 310),
+		Vector2(245, 310),
+		Vector2(515, 145),
+		Vector2(665, 145),
+		Vector2(515, 315),
+		Vector2(665, 315),
+		Vector2(945, 84),
+		Vector2(1135, 84),
+		Vector2(945, 325),
+		Vector2(1105, 325),
+		Vector2(1385, 145),
+		Vector2(1385, 315),
+		Vector2(1505, 235),
+		# Southern Marsh Islands
+		Vector2(145, 625),
+		Vector2(245, 650),
+		Vector2(165, 892),
+		Vector2(365, 892),
+		Vector2(515, 645),
+		Vector2(665, 645),
+		Vector2(585, 892),
+		Vector2(800, 892),
+		Vector2(955, 645),
+		Vector2(1105, 645),
+		Vector2(1025, 845),
+		Vector2(1385, 645),
+		Vector2(1495, 645),
+	]
+
+	var coarse_m := _smooth_chaikin(lane_main_raw, 2)
+	var coarse_f := _smooth_chaikin(lane_flank_raw, 2)
+	var smooth_m := _subdivide_polyline(coarse_m, 18.0)
+	var smooth_f := _subdivide_polyline(coarse_f, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "bayou_delta",
+		"index": 11,
+		"short_name": "CYPRESS BAYOU",
+		"name": "SECTOR 11 — CYPRESS BAYOU DELTA",
+		"tag": "SWAMP • 3 CROSSINGS • 25 WAVES",
+		"biome": "swamp",
+		"biome_id": 11,
+		"seed": 1184209,
+		"hp_scale": 2.10,
+		"cash_bonus": 165,
+		"briefing": "Convoys are weaving back and forth across three vertical timber bridges over the foggy Cypress Bayou! Turn the central marsh islands into crossfire killzones.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_m, smooth_f],
+		"ground_coarses": [coarse_m, coarse_f],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": Vector2(800, 515),
+		"bridges": [bridge_w, bridge_c, bridge_e],
+		"base_pos": Vector2(1495, 815),
+		"spawn_positions": [Vector2(18, 185), Vector2(18, 785)],
 		"air_spawn_pos": Vector2(18, 480),
 		"pads": pads,
 		"sandbags": [
-			{"pos": Vector2(840, 152), "angle": 0.30},
-			{"pos": Vector2(1002, 152), "angle": -0.30},
-			{"pos": Vector2(840, 815), "angle": -0.30},
-			{"pos": Vector2(1002, 815), "angle": 0.30},
-			{"pos": Vector2(1425, 412), "angle": 0.0},
-			{"pos": Vector2(1425, 540), "angle": 0.0},
+			{"pos": Vector2(305, 365), "angle": 0.25},
+			{"pos": Vector2(860, 602), "angle": -0.25},
 		],
-		"bunkers": [
-			{"pos": Vector2(465, 520), "angle": 0.0},
-			{"pos": Vector2(1450, 680), "angle": -PI * 0.78},
-		],
+		"bunkers": [],
+	}
+
+static func get_neon_tokyo() -> Dictionary:
+	# SECTOR 12 — NEO-TOKYO 2099: RIVERLESS MEGACITY GRID — 3-CORNER SIEGE ON CENTRAL NEO-TOWER!
+	# Pure rain-slicked neon skyscraper blocks with crisp 90-degree expressways spiraling into HQ!
+	var lane_nw_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 145),
+		Vector2(560, 145),
+		Vector2(588, 175),
+		Vector2(588, 320),
+		Vector2(560, 345),
+		Vector2(280, 345),
+		Vector2(252, 375),
+		Vector2(252, 455),
+		Vector2(282, 480),
+		Vector2(800, 480),
+	])
+
+	var lane_ne_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 145),
+		Vector2(1040, 145),
+		Vector2(1012, 175),
+		Vector2(1012, 320),
+		Vector2(1040, 345),
+		Vector2(1320, 345),
+		Vector2(1348, 375),
+		Vector2(1348, 455),
+		Vector2(1318, 480),
+		Vector2(800, 480),
+	])
+
+	var lane_s_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(800, 1020),
+		Vector2(800, 860),
+		Vector2(768, 835),
+		Vector2(495, 835),
+		Vector2(465, 805),
+		Vector2(465, 695),
+		Vector2(495, 665),
+		Vector2(770, 665),
+		Vector2(800, 635),
+		Vector2(800, 480),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(800, -60),
+		Vector2(800, 220),
+		Vector2(800, 480),
+	])
+
+	# Riverless cyberpunk downtown grid!
+	var river_raw := PackedVector2Array()
+
+	var pads: Array[Vector2] = [
+		# North-West Downtown Blocks
+		Vector2(145, 245),
+		Vector2(340, 245),
+		Vector2(475, 245),
+		Vector2(710, 145),
+		Vector2(710, 295),
+		Vector2(140, 455),
+		Vector2(385, 585),
+		Vector2(575, 575),
+		# North-East Downtown Blocks
+		Vector2(890, 145),
+		Vector2(890, 295),
+		Vector2(1125, 245),
+		Vector2(1260, 245),
+		Vector2(1455, 245),
+		Vector2(1460, 455),
+		Vector2(1215, 585),
+		Vector2(1025, 575),
+		# Central Neo-Tower Plaza Ring
+		Vector2(445, 412),
+		Vector2(665, 395),
+		Vector2(935, 395),
+		Vector2(1155, 412),
+		# South Expressway Blocks
+		Vector2(215, 675),
+		Vector2(355, 765),
+		Vector2(635, 750),
+		Vector2(935, 725),
+		Vector2(1115, 725),
+		Vector2(1345, 725),
+		Vector2(955, 875),
+		Vector2(635, 910),
+	]
+
+	var coarse_nw := _smooth_chaikin(lane_nw_raw, 1)
+	var coarse_ne := _smooth_chaikin(lane_ne_raw, 1)
+	var coarse_s := _smooth_chaikin(lane_s_raw, 1)
+	var smooth_nw := _subdivide_polyline(coarse_nw, 18.0)
+	var smooth_ne := _subdivide_polyline(coarse_ne, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "neon_tokyo",
+		"index": 12,
+		"short_name": "NEO-TOKYO 2099",
+		"name": "SECTOR 12 — NEO-TOKYO 2099",
+		"tag": "CYBERPUNK • 3-CORNER • 26 WAVES",
+		"biome": "cyberpunk",
+		"biome_id": 12,
+		"seed": 20991204,
+		"hp_scale": 2.22,
+		"cash_bonus": 180,
+		"briefing": "Rogue corporate divisions are closing in on Central Neo-Tower from North-West, North-East, and South through Neo-Tokyo's rain-slicked neon street grid! Defend the central core.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_nw, smooth_ne, smooth_s],
+		"ground_coarses": [coarse_nw, coarse_ne, coarse_s],
+		"air_path": smooth_air,
+		"river_points": river_raw,
+		"bridge_pos": Vector2(-9999, -9999),
+		"bridges": [],
+		"base_pos": Vector2(800, 480),
+		"spawn_positions": [Vector2(18, 145), Vector2(1582, 145), Vector2(800, 942)],
+		"air_spawn_pos": Vector2(800, 18),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [],
+	}
+
+static func get_tranquility_crater() -> Dictionary:
+	# SECTOR 13 — THE MOON: RIVERLESS GIANT CRATER SPIRAL!
+	# Dual lunar drop corridors spiral inward around concentric impact terraces to Central Moonbase Alpha!
+	var lane_outer_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 140),
+		Vector2(1345, 140),
+		Vector2(1415, 175),
+		Vector2(1435, 245),
+		Vector2(1435, 745),
+		Vector2(1405, 815),
+		Vector2(1335, 835),
+		Vector2(275, 835),
+		Vector2(205, 805),
+		Vector2(185, 735),
+		Vector2(185, 415),
+		Vector2(215, 345),
+		Vector2(285, 325),
+		Vector2(1115, 325),
+		Vector2(1185, 355),
+		Vector2(1205, 425),
+		Vector2(1205, 575),
+		Vector2(1175, 640),
+		Vector2(1105, 658),
+		Vector2(860, 658),
+		Vector2(815, 620),
+		Vector2(800, 480),
+	])
+
+	var lane_inner_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1660, 835),
+		Vector2(275, 835),
+		Vector2(205, 805),
+		Vector2(185, 735),
+		Vector2(185, 415),
+		Vector2(215, 345),
+		Vector2(285, 325),
+		Vector2(1115, 325),
+		Vector2(1185, 355),
+		Vector2(1205, 425),
+		Vector2(1205, 575),
+		Vector2(1175, 640),
+		Vector2(1105, 658),
+		Vector2(860, 658),
+		Vector2(815, 620),
+		Vector2(800, 480),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 880),
+		Vector2(420, 680),
+		Vector2(800, 480),
+	])
+
+	# Pure airless cratered regolith — no river!
+	var river_raw := PackedVector2Array()
+
+	var pads: Array[Vector2] = [
+		# Outer Crater Rim Terrace (Between Outer & Middle rings!)
+		Vector2(160, 232),
+		Vector2(345, 232),
+		Vector2(545, 232),
+		Vector2(745, 232),
+		Vector2(945, 232),
+		Vector2(1145, 232),
+		Vector2(1320, 238),
+		Vector2(1320, 415),
+		Vector2(1320, 585),
+		Vector2(1315, 742),
+		Vector2(1145, 748),
+		Vector2(955, 748),
+		Vector2(755, 748),
+		Vector2(555, 748),
+		Vector2(355, 748),
+		Vector2(92, 465),
+		Vector2(92, 665),
+		# Inner Crater Core Ring (High-value dual-coverage pads around Moonbase Alpha!)
+		Vector2(325, 445),
+		Vector2(485, 445),
+		Vector2(635, 445),
+		Vector2(965, 445),
+		Vector2(1095, 485),
+		Vector2(325, 625),
+		Vector2(485, 625),
+		Vector2(645, 625),
+		Vector2(975, 565),
+		Vector2(1520, 465),
+	]
+
+	var coarse_o := _smooth_chaikin(lane_outer_raw, 2)
+	var coarse_i := _smooth_chaikin(lane_inner_raw, 2)
+	var smooth_o := _subdivide_polyline(coarse_o, 18.0)
+	var smooth_i := _subdivide_polyline(coarse_i, 18.0)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "tranquility_crater",
+		"index": 13,
+		"short_name": "LUNAR CRATER",
+		"name": "SECTOR 13 — SEA OF TRANQUILITY (MOON)",
+		"tag": "THE MOON • SPIRAL • 27 WAVES",
+		"biome": "moon",
+		"biome_id": 13,
+		"seed": 19690720,
+		"hp_scale": 2.36,
+		"cash_bonus": 200,
+		"briefing": "Orbital drop-pods have deployed hostile rover columns onto the outer rim of Tranquility Crater! They are spiraling inward around the concentric lunar terraces toward Central Moonbase Alpha.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_o, smooth_i],
+		"ground_coarses": [coarse_o, coarse_i],
+		"air_path": smooth_air,
+		"river_points": river_raw,
+		"bridge_pos": Vector2(-9999, -9999),
+		"bridges": [],
+		"base_pos": Vector2(800, 480),
+		"spawn_positions": [Vector2(18, 140), Vector2(1582, 835)],
+		"air_spawn_pos": Vector2(18, 860),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [],
+	}
+
+static func get_olympus_rift() -> Dictionary:
+	# SECTOR 14 — MARS: OLYMPUS RIFT: REVERSE-SPLIT CANYON FORK!
+	# Columns enter a single western canyon mouth and SPLIT into High Rim vs Deep Chasm routes
+	# crossing a horizontal Martian dry-ice rift via twin VERTICAL viaducts toward SE Ares HQ!
+	var lane_high_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 265),
+		Vector2(315, 265),
+		Vector2(365, 232),
+		Vector2(395, 175),
+		Vector2(455, 155),
+		Vector2(1195, 155),
+		Vector2(1250, 185),
+		Vector2(1270, 250),
+		Vector2(1270, 745),
+		Vector2(1308, 795),
+		Vector2(1375, 810),
+		Vector2(1495, 810),
+	])
+
+	var lane_low_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 265),
+		Vector2(315, 265),
+		Vector2(368, 298),
+		Vector2(385, 365),
+		Vector2(385, 745),
+		Vector2(422, 798),
+		Vector2(490, 810),
+		Vector2(735, 810),
+		Vector2(785, 775),
+		Vector2(805, 705),
+		Vector2(845, 675),
+		Vector2(1015, 675),
+		Vector2(1062, 712),
+		Vector2(1082, 780),
+		Vector2(1145, 810),
+		Vector2(1495, 810),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 120),
+		Vector2(560, 355),
+		Vector2(1080, 585),
+		Vector2(1495, 810),
+	])
+
+	# Horizontal Martian dry-ice canyon chasm West -> East!
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 495),
+		Vector2(180, 512),
+		Vector2(385, 505),
+		Vector2(660, 480),
+		Vector2(960, 520),
+		Vector2(1270, 508),
+		Vector2(1480, 490),
+		Vector2(1660, 500),
+	])
+
+	var bridge_west := {"pos": Vector2(385, 505), "angle": PI * 0.5}
+	var bridge_east := {"pos": Vector2(1270, 508), "angle": PI * 0.5}
+
+	var pads: Array[Vector2] = [
+		# Western Canyon Mouth (Single-Choke Power Zone!)
+		Vector2(135, 155),
+		Vector2(265, 155),
+		Vector2(145, 368),
+		Vector2(265, 368),
+		# Northern Martian Rim
+		Vector2(565, 74),
+		Vector2(805, 74),
+		Vector2(1045, 74),
+		Vector2(545, 285),
+		Vector2(735, 285),
+		Vector2(925, 285),
+		Vector2(1115, 285),
+		Vector2(1405, 165),
+		Vector2(1425, 325),
+		# Southern Martian Basin
+		Vector2(145, 665),
+		Vector2(265, 665),
+		Vector2(245, 845),
+		Vector2(525, 675),
+		Vector2(665, 675),
+		Vector2(565, 900),
+		Vector2(805, 895),
+		Vector2(930, 815),
+		Vector2(1145, 665),
+		Vector2(1185, 900),
+		Vector2(1405, 665),
+		Vector2(1505, 665),
+		Vector2(1375, 900),
+	]
+
+	var coarse_h := _smooth_chaikin(lane_high_raw, 2)
+	var coarse_l := _smooth_chaikin(lane_low_raw, 2)
+	var smooth_h := _subdivide_polyline(coarse_h, 18.0)
+	var smooth_l := _subdivide_polyline(coarse_l, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "olympus_rift",
+		"index": 14,
+		"short_name": "OLYMPUS RIFT",
+		"name": "SECTOR 14 — MARS: OLYMPUS RIFT",
+		"tag": "MARS • CANYON FORK • 28 WAVES",
+		"biome": "mars",
+		"biome_id": 14,
+		"seed": 20420314,
+		"hp_scale": 2.52,
+		"cash_bonus": 220,
+		"briefing": "Martian siege divisions are pouring through the West Canyon Mouth before splitting along the High Rim and Southern Basin across two vertical dry-ice viaducts toward South-East Ares Command.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_h, smooth_l],
+		"ground_coarses": [coarse_h, coarse_l],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": Vector2(385, 505),
+		"bridges": [bridge_west, bridge_east],
+		"base_pos": Vector2(1495, 810),
+		"spawn_positions": [Vector2(18, 265)],
+		"air_spawn_pos": Vector2(18, 150),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [],
+	}
+
+static func get_europa_abyss() -> Dictionary:
+	# SECTOR 15 — EUROPA ICE SHELL: BOTTOM-TO-TOP ASSAULT!
+	# Invaders advance UPWARD from South-West & South-East across a horizontal glowing cyan
+	# abyssal ocean fissure toward our Northern Ice Outpost HQ at top-center!
+	var lane_west_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(215, 1020),
+		Vector2(215, 795),
+		Vector2(252, 745),
+		Vector2(320, 730),
+		Vector2(415, 730),
+		Vector2(455, 695),
+		Vector2(465, 630),
+		Vector2(465, 355),
+		Vector2(428, 305),
+		Vector2(355, 290),
+		Vector2(285, 290),
+		Vector2(248, 245),
+		Vector2(248, 175),
+		Vector2(292, 128),
+		Vector2(375, 115),
+		Vector2(800, 115),
+	])
+
+	var lane_east_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(1385, 1020),
+		Vector2(1385, 795),
+		Vector2(1348, 745),
+		Vector2(1280, 730),
+		Vector2(1185, 730),
+		Vector2(1145, 695),
+		Vector2(1135, 630),
+		Vector2(1135, 355),
+		Vector2(1172, 305),
+		Vector2(1245, 290),
+		Vector2(1315, 290),
+		Vector2(1352, 245),
+		Vector2(1352, 175),
+		Vector2(1308, 128),
+		Vector2(1225, 115),
+		Vector2(800, 115),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(800, 1020),
+		Vector2(800, 620),
+		Vector2(800, 340),
+		Vector2(800, 115),
+	])
+
+	# Horizontal glowing bioluminescent Europan abyssal ocean fissure!
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 492),
+		Vector2(220, 472),
+		Vector2(465, 480),
+		Vector2(800, 505),
+		Vector2(1135, 480),
+		Vector2(1380, 472),
+		Vector2(1660, 492),
+	])
+
+	var bridge_w := {"pos": Vector2(465, 480), "angle": PI * 0.5}
+	var bridge_e := {"pos": Vector2(1135, 480), "angle": PI * 0.5}
+
+	var pads: Array[Vector2] = [
+		# Southern Cryo Approaches
+		Vector2(105, 835),
+		Vector2(105, 655),
+		Vector2(345, 855),
+		Vector2(585, 795),
+		Vector2(585, 645),
+		Vector2(800, 825),
+		Vector2(800, 665),
+		Vector2(1015, 795),
+		Vector2(1015, 645),
+		Vector2(1255, 855),
+		Vector2(1495, 835),
+		Vector2(1495, 655),
+		# Northern Tectonic Shelf & Outpost HQ Perimeter
+		Vector2(132, 345),
+		Vector2(132, 175),
+		Vector2(335, 385),
+		Vector2(455, 205),
+		Vector2(585, 345),
+		Vector2(585, 215),
+		Vector2(695, 285),
+		Vector2(800, 355),
+		Vector2(800, 245),
+		Vector2(905, 285),
+		Vector2(1015, 345),
+		Vector2(1015, 215),
+		Vector2(1145, 205),
+		Vector2(1265, 385),
+		Vector2(1468, 345),
+		Vector2(1468, 175),
+	]
+
+	var coarse_w := _smooth_chaikin(lane_west_raw, 2)
+	var coarse_e := _smooth_chaikin(lane_east_raw, 2)
+	var smooth_w := _subdivide_polyline(coarse_w, 18.0)
+	var smooth_e := _subdivide_polyline(coarse_e, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "europa_abyss",
+		"index": 15,
+		"short_name": "EUROPA ICE SHELL",
+		"name": "SECTOR 15 — EUROPA ICE SHELL (JUPITER)",
+		"tag": "EUROPA • SOUTH→NORTH • 29 WAVES",
+		"biome": "europa",
+		"biome_id": 15,
+		"seed": 15799012,
+		"hp_scale": 2.68,
+		"cash_bonus": 240,
+		"briefing": "Deep-space raiders are advancing NORTHWARD from the southern ice plains across twin vertical cryo-bridges spanning the glowing Europan ocean fissure! Hold the Northern Research Outpost.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_w, smooth_e],
+		"ground_coarses": [coarse_w, coarse_e],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": Vector2(465, 480),
+		"bridges": [bridge_w, bridge_e],
+		"base_pos": Vector2(800, 115),
+		"spawn_positions": [Vector2(215, 942), Vector2(1385, 942)],
+		"air_spawn_pos": Vector2(800, 942),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [],
+	}
+
+static func get_xenon_prime() -> Dictionary:
+	# SECTOR 16 — XENON PRIME (GRAND FINALE): 3-FRONT ALIEN PLASMA GAUNTLET!
+	# Simultaneous invasions from NORTH, WEST, and SOUTH surge across a crescent plasma river
+	# spanned by THREE glowing plasma bridges converging on the Starport Citadel!
+	var lane_north_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(345, -60),
+		Vector2(345, 145),
+		Vector2(395, 190),
+		Vector2(1145, 190),
+		Vector2(1215, 222),
+		Vector2(1242, 290),
+		Vector2(1242, 415),
+		Vector2(1285, 468),
+		Vector2(1355, 480),
+		Vector2(1505, 480),
+	])
+
+	var lane_mid_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 480),
+		Vector2(280, 480),
+		Vector2(345, 445),
+		Vector2(395, 385),
+		Vector2(545, 385),
+		Vector2(600, 435),
+		Vector2(655, 480),
+		Vector2(1505, 480),
+	])
+
+	var lane_south_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(345, 1020),
+		Vector2(345, 815),
+		Vector2(395, 770),
+		Vector2(1145, 770),
+		Vector2(1215, 738),
+		Vector2(1242, 670),
+		Vector2(1242, 545),
+		Vector2(1285, 492),
+		Vector2(1355, 480),
+		Vector2(1505, 480),
+	])
+
+	var air_waypoints: PackedVector2Array = PackedVector2Array([
+		Vector2(-60, 125),
+		Vector2(560, 315),
+		Vector2(1060, 465),
+		Vector2(1505, 480),
+	])
+
+	# Dramatic curving crescent alien plasma river!
+	var river_raw: PackedVector2Array = PackedVector2Array([
+		Vector2(955, -50),
+		Vector2(885, 190),
+		Vector2(815, 335),
+		Vector2(785, 480),
+		Vector2(815, 625),
+		Vector2(885, 770),
+		Vector2(955, 1020),
+	])
+
+	var bridge_n := {"pos": Vector2(885, 190), "angle": 0.0}
+	var bridge_m := {"pos": Vector2(785, 480), "angle": 0.0}
+	var bridge_s := {"pos": Vector2(885, 770), "angle": 0.0}
+
+	var pads: Array[Vector2] = [
+		# West Crystal Approaches
+		Vector2(145, 145),
+		Vector2(145, 335),
+		Vector2(145, 625),
+		Vector2(145, 815),
+		Vector2(255, 295),
+		Vector2(255, 665),
+		# Northern & Southern Ridge Overlooks
+		Vector2(525, 86),
+		Vector2(735, 86),
+		Vector2(1035, 86),
+		Vector2(525, 874),
+		Vector2(735, 874),
+		Vector2(1035, 874),
+		# Central Crystal Valley (West of Plasma River)
+		Vector2(485, 288),
+		Vector2(665, 315),
+		Vector2(485, 535),
+		Vector2(485, 665),
+		Vector2(665, 645),
+		# East Plasma Basin (Between Plasma River & Starport Convergence!)
+		Vector2(995, 335),
+		Vector2(1125, 335),
+		Vector2(995, 625),
+		Vector2(1125, 625),
+		# Starport Citadel Final Perimeter
+		Vector2(1355, 225),
+		Vector2(1375, 368),
+		Vector2(1375, 592),
+		Vector2(1355, 735),
+		Vector2(1475, 315),
+		Vector2(1475, 645),
+	]
+
+	var coarse_n := _smooth_chaikin(lane_north_raw, 2)
+	var coarse_m := _smooth_chaikin(lane_mid_raw, 2)
+	var coarse_s := _smooth_chaikin(lane_south_raw, 2)
+	var smooth_n := _subdivide_polyline(coarse_n, 18.0)
+	var smooth_m := _subdivide_polyline(coarse_m, 18.0)
+	var smooth_s := _subdivide_polyline(coarse_s, 18.0)
+	var smooth_river := _smooth_chaikin(river_raw, 3)
+	var smooth_air := _subdivide_polyline(air_waypoints, 24.0)
+
+	return {
+		"id": "xenon_prime",
+		"index": 16,
+		"short_name": "XENON PRIME",
+		"name": "SECTOR 16 — XENON PRIME (EXOPLANET)",
+		"tag": "ALIEN • 3-FRONT FINAL • 30 WAVES",
+		"biome": "alien",
+		"biome_id": 16,
+		"seed": 16999001,
+		"hp_scale": 2.86,
+		"cash_bonus": 265,
+		"briefing": "Three full invasion fronts—North, West, and South—are surging across the crescent plasma river toward Starport Citadel! Defend all three plasma bridges and survive the 30-wave finale.",
+		"width": MAP_WIDTH,
+		"height": MAP_HEIGHT,
+		"ground_paths": [smooth_n, smooth_m, smooth_s],
+		"ground_coarses": [coarse_n, coarse_m, coarse_s],
+		"air_path": smooth_air,
+		"river_points": smooth_river,
+		"bridge_pos": Vector2(785, 480),
+		"bridges": [bridge_n, bridge_m, bridge_s],
+		"base_pos": Vector2(1505, 480),
+		"spawn_positions": [Vector2(345, 18), Vector2(18, 480), Vector2(345, 942)],
+		"air_spawn_pos": Vector2(18, 155),
+		"pads": pads,
+		"sandbags": [],
+		"bunkers": [],
 	}
 
 static func _smooth_chaikin(pts: PackedVector2Array, iterations: int) -> PackedVector2Array:
@@ -1344,6 +2319,25 @@ static func distance_to_polylines(p: Vector2, polys: Array) -> float:
 		if d < best:
 			best = d
 	return best
+
+static func signed_sun_to_river(p: Vector2, river: PackedVector2Array) -> float:
+	if river.size() < 2:
+		return 0.0
+	var best_d: float = INF
+	var best_proj: float = 0.0
+	var sun_2d := Vector2(0.76, 0.65)
+	for i in range(river.size() - 1):
+		var a: Vector2 = river[i]
+		var b: Vector2 = river[i + 1]
+		var ab: Vector2 = b - a
+		var len_sq: float = ab.length_squared()
+		var t: float = clampf((p - a).dot(ab) / maxf(0.0001, len_sq), 0.0, 1.0)
+		var closest: Vector2 = a + ab * t
+		var d: float = p.distance_to(closest)
+		if d < best_d:
+			best_d = d
+			best_proj = (p - closest).dot(sun_2d)
+	return best_proj
 
 static func signed_x_to_river(p: Vector2, river: PackedVector2Array) -> float:
 	var best_d: float = INF

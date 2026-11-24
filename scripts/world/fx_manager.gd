@@ -6,11 +6,19 @@ var _rings: Array[Dictionary] = []
 var _flashes: Array[Dictionary] = []
 var _texts: Array[Dictionary] = []
 var _jets: Array[Dictionary] = []
+var _beams: Array[Dictionary] = []
 
 # Air Strike targeting reticle preview
 var airstrike_aiming: bool = false
 var airstrike_aim_pos: Vector2 = Vector2.ZERO
 var airstrike_radius: float = 125.0
+
+# Hunter Drone manual target assignment reticle
+var drone_assign_aiming: bool = false
+var drone_assign_pos: Vector2 = Vector2.ZERO
+var drone_assign_has_target: bool = false
+var drone_assign_target_pos: Vector2 = Vector2.ZERO
+var drone_assign_target_radius: float = 18.0
 var _time: float = 0.0
 
 func clear_all() -> void:
@@ -19,8 +27,32 @@ func clear_all() -> void:
 	_flashes.clear()
 	_texts.clear()
 	_jets.clear()
+	_beams.clear()
 	airstrike_aiming = false
+	drone_assign_aiming = false
 	queue_redraw()
+
+func add_beam(from_pos: Vector2, to_pos: Vector2, ramp_u: float, color: Color) -> void:
+	_beams.append({
+		"from": from_pos,
+		"to": to_pos,
+		"ramp": clampf(ramp_u, 0.0, 1.0),
+		"color": color,
+		"fresh": true,
+	})
+	queue_redraw()
+
+func spawn_shield_break(pos: Vector2, radius: float = 28.0) -> void:
+	_rings.append({
+		"pos": pos,
+		"start_r": radius * 0.45,
+		"end_r": radius * 1.9,
+		"color": Color(0.38, 0.92, 1.0, 0.92),
+		"width": 3.4,
+		"age": 0.0,
+		"life": 0.30,
+	})
+	spawn_spark_hit(pos, Color(0.45, 0.94, 1.0), 12)
 
 func spawn_muzzle_flash(pos: Vector2, angle: float, size: float = 12.0, color: Color = Color(1.0, 0.88, 0.45)) -> void:
 	_flashes.append({
@@ -292,7 +324,14 @@ func spawn_airstrike_jets(target_pos: Vector2, dir: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
-	var active := airstrike_aiming or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty()
+	var had_beams := not _beams.is_empty()
+	for i in range(_beams.size() - 1, -1, -1):
+		if bool(_beams[i]["fresh"]):
+			_beams[i]["fresh"] = false
+		else:
+			_beams.remove_at(i)
+
+	var active := airstrike_aiming or drone_assign_aiming or had_beams or not _beams.is_empty() or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty()
 
 	for i in range(_particles.size() - 1, -1, -1):
 		var p := _particles[i]
@@ -394,6 +433,23 @@ func _draw() -> void:
 		draw_colored_polygon(poly, col)
 		draw_circle(pos + dir * (sz * 0.3), sz * 0.38, Color(1.0, 0.98, 0.88, col.a))
 
+	# 3.5. Directed-Energy HEL Laser beams (rendered cleanly over ground & air units)
+	for b in _beams:
+		var from_p: Vector2 = b["from"]
+		var to_p: Vector2 = b["to"]
+		var ramp: float = float(b["ramp"])
+		var col: Color = b["color"]
+		var outer_w: float = lerpf(5.0, 10.5, ramp)
+		var mid_w: float = lerpf(2.6, 5.4, ramp)
+		var core_w: float = lerpf(1.2, 2.6, ramp)
+		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.28 + ramp * 0.20), outer_w, true)
+		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.86), mid_w, true)
+		draw_line(from_p, to_p, Color(1.0, 0.94, 0.98, 0.96), core_w, true)
+		# Thermal impact flare at lock point
+		var flare_r: float = lerpf(5.0, 11.5, ramp) * (0.85 + 0.15 * sin(_time * 42.0))
+		draw_circle(to_p, flare_r, Color(col.r, col.g, col.b, 0.38))
+		draw_circle(to_p, flare_r * 0.45, Color(1.0, 0.96, 0.98, 0.92))
+
 	# 4. Strike Jets (high altitude, drawn above everything)
 	for j in _jets:
 		_draw_strike_jet(j["pos"], j["dir"])
@@ -411,6 +467,10 @@ func _draw() -> void:
 	# 6. Air Strike Targeting Reticle
 	if airstrike_aiming:
 		_draw_airstrike_reticle()
+
+	# 7. Hunter Drone Manual Target Assign Reticle
+	if drone_assign_aiming:
+		_draw_drone_assign_reticle()
 
 func _draw_strike_jet(pos: Vector2, dir: Vector2) -> void:
 	var perp := Vector2(-dir.y, dir.x)
@@ -494,3 +554,18 @@ func _draw_airstrike_reticle() -> void:
 		draw_arc(p, r + 9.0, a - 0.22, a + 0.22, 8, Color(1.0, 0.80, 0.32, 0.9), 3.0, true)
 
 	draw_string(ThemeDB.fallback_font, p + Vector2(-58.0, -r - 16.0), "HELLFIRE STRIKE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.82, 0.40, 0.95))
+
+func _draw_drone_assign_reticle() -> void:
+	var p: Vector2 = drone_assign_target_pos if drone_assign_has_target else drone_assign_pos
+	var r: float = (drone_assign_target_radius + 10.0) if drone_assign_has_target else 22.0
+	var col: Color = Color(0.56, 0.98, 0.34, 0.95) if drone_assign_has_target else Color(0.84, 0.92, 0.56, 0.65)
+	var pulse: float = 0.5 + 0.5 * sin(_time * 10.0)
+
+	draw_circle(p, r, Color(col.r, col.g, col.b, 0.14 if drone_assign_has_target else 0.06))
+	draw_arc(p, r, 0.0, TAU, 36, col, 2.0, true)
+	var rot: float = _time * 2.2
+	for i in range(4):
+		var a: float = rot + float(i) * PI * 0.5
+		draw_arc(p, r + 5.0 + pulse * 2.5, a - 0.28, a + 0.28, 6, col, 2.4, true)
+	var lbl: String = "LOCK TARGET [LMB]" if drone_assign_has_target else "CLICK HOSTILE TO HUNT"
+	draw_string(ThemeDB.fallback_font, p + Vector2(-72.0, -r - 14.0), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, col)

@@ -16,6 +16,20 @@ var recoil: float = 0.0
 var _cooldown: float = 0.0
 var _barrel_toggle: int = 0
 var _cryo_pulse: float = 0.0
+var _laser_target: Enemy = null
+var _laser_ramp_t: float = 0.0
+var _laser_active: bool = false
+var _laser_spark_cd: float = 0.0
+var _salvo_remaining: int = 0
+var _salvo_timer: float = 0.0
+var _salvo_target: Enemy = null
+var _salvo_base_pos: Vector2 = Vector2.ZERO
+var _salvo_index: int = 0
+
+var drone_hold_mode: bool = false
+var active_drone: HunterDrone = null
+var rearm_timer: float = 0.0
+
 var _enemies_container: Node = null
 var _projectiles_container: Node = null
 var _fx: FxManager = null
@@ -40,6 +54,8 @@ func setup(
 	position = pos
 	level = 0
 	total_invested = int(config["base_cost"])
+	if turret_type == TurretData.TurretType.DRONE:
+		target_mode = TurretData.TargetMode.STRONGEST
 	_enemies_container = enemies_container
 	_projectiles_container = projectiles_container
 	_fx = fx_manager
@@ -95,6 +111,37 @@ func get_target_mode_label() -> String:
 func register_kill() -> void:
 	kills += 1
 
+func can_launch_drone() -> bool:
+	if turret_type != TurretData.TurretType.DRONE:
+		return false
+	return (active_drone == null or not is_instance_valid(active_drone)) and rearm_timer <= 0.0
+
+func toggle_drone_hold() -> void:
+	if turret_type != TurretData.TurretType.DRONE:
+		return
+	drone_hold_mode = not drone_hold_mode
+
+func get_drone_status_label() -> String:
+	if active_drone != null and is_instance_valid(active_drone):
+		return "HUNTING"
+	if rearm_timer > 0.0:
+		return "REARM %.1fs" % rearm_timer
+	return "HOLD • READY" if drone_hold_mode else "AUTO • READY"
+
+func assign_manual_target(target: Enemy) -> bool:
+	if not can_launch_drone():
+		return false
+	if target == null or not is_instance_valid(target) or not target.alive:
+		return false
+	_launch_drone(target)
+	return true
+
+func cleanup_on_sell() -> void:
+	if active_drone != null and is_instance_valid(active_drone):
+		active_drone.source_turret = null
+		active_drone.force_self_destruct()
+		active_drone = null
+
 func _process(delta: float) -> void:
 	_cryo_pulse += delta * 3.5
 	if recoil > 0.0:
@@ -102,18 +149,200 @@ func _process(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown = maxf(0.0, _cooldown - delta)
 
+	match turret_type:
+		TurretData.TurretType.LASER:
+			_process_laser(delta)
+		TurretData.TurretType.MLRS:
+			_process_mlrs(delta)
+		TurretData.TurretType.DRONE:
+			_process_drone_pad(delta)
+		_:
+			var target := _acquire_target()
+			if target != null:
+				var aim_pos := _predict_aim_position(target)
+				var desired := (aim_pos - position).angle()
+				var turn_rate := 16.0 if turret_type == TurretData.TurretType.VULCAN else 9.5
+				turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * turn_rate))
+
+				var angle_diff := absf(wrapf(desired - turret_angle, -PI, PI))
+				if _cooldown <= 0.0 and angle_diff < 0.34:
+					_fire_at(target, aim_pos)
+
+	queue_redraw()
+
+func _process_laser(delta: float) -> void:
+	_laser_active = false
+	var target := _acquire_target()
+	if target == null:
+		_laser_target = null
+		_laser_ramp_t = 0.0
+		return
+
+	if target != _laser_target:
+		_laser_target = target
+		_laser_ramp_t = 0.0
+
+	var desired := (target.position - position).angle()
+	turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * 14.0))
+	var angle_diff := absf(wrapf(desired - turret_angle, -PI, PI))
+	if angle_diff < 0.24:
+		var stats := get_stats()
+		var ramp_time: float = maxf(0.2, float(stats.get("ramp_time", 3.0)))
+		var max_ramp: float = float(stats.get("max_ramp", 2.2))
+		_laser_ramp_t = minf(ramp_time, _laser_ramp_t + delta)
+		var ramp_u: float = clampf(_laser_ramp_t / ramp_time, 0.0, 1.0)
+		var ramp_mult: float = lerpf(1.0, max_ramp, ramp_u)
+		var dps: float = float(stats["damage"]) * ramp_mult
+		var shield_bonus: float = float(config.get("shield_bonus", 2.0))
+		var muzzle_pos := position + Vector2.from_angle(turret_angle) * 20.0
+
+		_laser_active = true
+		if _fx != null:
+			_fx.add_beam(muzzle_pos, target.position, ramp_u, config["accent"])
+			_laser_spark_cd -= delta
+			if _laser_spark_cd <= 0.0:
+				_laser_spark_cd = 0.065
+				_fx.spawn_spark_hit(target.position, Color(1.0, 0.55, 0.80), 3)
+		if _sfx != null:
+			_sfx.play("laser", -7.5 + ramp_u * 2.5, 0.05, 0.14)
+
+		target.take_damage(dps * delta, float(stats["armor_pierce"]), self, shield_bonus)
+		if not target.alive:
+			_laser_target = null
+			_laser_ramp_t = 0.0
+
+func _process_mlrs(delta: float) -> void:
+	if _salvo_remaining > 0:
+		_salvo_timer -= delta
+		if _salvo_target != null and is_instance_valid(_salvo_target) and _salvo_target.alive:
+			_salvo_base_pos = _predict_aim_position(_salvo_target)
+		var desired := (_salvo_base_pos - position).angle()
+		turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * 9.0))
+		if _salvo_timer <= 0.0:
+			_fire_mlrs_rocket()
+			_salvo_remaining -= 1
+			_salvo_timer = 0.11
+		return
+
 	var target := _acquire_target()
 	if target != null:
 		var aim_pos := _predict_aim_position(target)
 		var desired := (aim_pos - position).angle()
-		var turn_rate := 16.0 if turret_type == TurretData.TurretType.VULCAN else 9.5
-		turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * turn_rate))
-
+		turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * 7.5))
 		var angle_diff := absf(wrapf(desired - turret_angle, -PI, PI))
-		if _cooldown <= 0.0 and angle_diff < 0.34:
-			_fire_at(target, aim_pos)
+		if _cooldown <= 0.0 and angle_diff < 0.30:
+			var stats := get_stats()
+			_cooldown = 1.0 / maxf(0.05, float(stats["fire_rate"]))
+			_salvo_remaining = int(stats.get("salvo_count", 3))
+			_salvo_timer = 0.0
+			_salvo_target = target
+			_salvo_base_pos = aim_pos
+			_salvo_index = 0
+			_fire_mlrs_rocket()
+			_salvo_remaining -= 1
+			_salvo_timer = 0.11
 
-	queue_redraw()
+func _fire_mlrs_rocket() -> void:
+	var stats := get_stats()
+	var salvo_total: int = maxi(1, int(stats.get("salvo_count", 3)))
+	var dir := Vector2.from_angle(turret_angle)
+	var perp := Vector2(-dir.y, dir.x)
+	var tube_frac: float = (float(_salvo_index % salvo_total) / maxf(1.0, float(salvo_total - 1))) * 2.0 - 1.0 if salvo_total > 1 else 0.0
+	var lateral: float = tube_frac * 9.5
+	var muzzle_pos := position + dir * 15.0 + perp * lateral
+	recoil = 3.2
+
+	# Slight tactical carpet spread along & across the convoy
+	var spread_offset := Vector2(randf_range(-24.0, 24.0), randf_range(-24.0, 24.0))
+	if _salvo_index == 0:
+		spread_offset *= 0.25
+	var impact_pos: Vector2 = _salvo_base_pos + spread_offset
+	_salvo_index += 1
+
+	var proj := Projectile.new()
+	proj.setup({
+		"turret_type": turret_type,
+		"source_turret": self,
+		"target_enemy": null,
+		"start_pos": muzzle_pos,
+		"target_pos": impact_pos,
+		"speed": float(stats["proj_speed"]),
+		"damage": float(stats["damage"]),
+		"air_bonus": 1.0,
+		"splash_radius": float(stats["splash"]),
+		"slow_amount": 0.0,
+		"slow_duration": 0.0,
+		"armor_pierce": float(stats["armor_pierce"]),
+		"can_hit_air": false,
+		"burn_dps": float(stats.get("burn_dps", 14.0)),
+		"burn_dur": float(stats.get("burn_dur", 3.4)),
+		"burn_radius": float(stats.get("burn_radius", 44.0)),
+		"fx": _fx,
+		"decals": _decals,
+		"sfx": _sfx,
+		"enemies_container": _enemies_container,
+		"on_shake": _on_shake,
+	})
+	_projectiles_container.add_child(proj)
+
+	if _fx != null:
+		_fx.spawn_muzzle_flash(muzzle_pos, turret_angle, 11.0, Color(1.0, 0.70, 0.24))
+		_fx.spawn_smoke(position - dir * 12.0 + perp * lateral, 7.5, 0.55, 0.52)
+	if _sfx != null:
+		_sfx.play("mlrs", -3.0, 0.12, 0.06)
+
+func _process_drone_pad(delta: float) -> void:
+	if active_drone != null and is_instance_valid(active_drone):
+		var desired := (active_drone.position - position).angle()
+		turret_angle = lerp_angle(turret_angle, desired, minf(1.0, delta * 6.0))
+		return
+
+	active_drone = null
+	if rearm_timer > 0.0:
+		rearm_timer = maxf(0.0, rearm_timer - delta)
+		turret_angle += delta * 1.4
+		return
+
+	# Armed & waiting on pad
+	if not drone_hold_mode:
+		var target := _acquire_target()
+		if target != null:
+			_launch_drone(target)
+			return
+	turret_angle += delta * 0.65
+
+func _launch_drone(target: Enemy) -> void:
+	var stats := get_stats()
+	var drone := HunterDrone.new()
+	drone.setup({
+		"source_turret": self,
+		"target_enemy": target,
+		"start_pos": position,
+		"damage": float(stats["damage"]),
+		"fire_rate": float(stats["fire_rate"]),
+		"speed": float(stats.get("drone_speed", 240.0)),
+		"armor_pierce": float(stats["armor_pierce"]),
+		"level": level,
+		"accent": config["accent"],
+		"fx": _fx,
+		"sfx": _sfx,
+	})
+	drone.finished.connect(_on_drone_finished)
+	_projectiles_container.add_child(drone)
+	active_drone = drone
+	turret_angle = (target.position - position).angle()
+
+	if _fx != null:
+		_fx.spawn_spark_hit(position, config["accent"], 8)
+		_fx.spawn_smoke(position, 6.5, 0.40, 0.65)
+	if _sfx != null:
+		_sfx.play("drone_launch", -2.5, 0.06, 0.05)
+
+func _on_drone_finished(drone: HunterDrone) -> void:
+	if active_drone == drone:
+		active_drone = null
+		var stats := get_stats()
+		rearm_timer = float(stats.get("rearm_time", 4.0))
 
 func _acquire_target() -> Enemy:
 	if _enemies_container == null:
@@ -164,7 +393,7 @@ func _acquire_target() -> Enemy:
 func _predict_aim_position(target: Enemy) -> Vector2:
 	var stats := get_stats()
 	var proj_spd: float = float(stats["proj_speed"])
-	if turret_type == TurretData.TurretType.CANNON or turret_type == TurretData.TurretType.CRYO:
+	if turret_type == TurretData.TurretType.CANNON or turret_type == TurretData.TurretType.CRYO or turret_type == TurretData.TurretType.MLRS:
 		var dist := position.distance_to(target.position)
 		var t_flight := dist / maxf(100.0, proj_spd)
 		return target.position + target.get_velocity_vector() * (t_flight * 0.72)
@@ -297,6 +526,12 @@ func _draw() -> void:
 			_draw_missile(accent)
 		TurretData.TurretType.CRYO:
 			_draw_cryo(accent)
+		TurretData.TurretType.LASER:
+			_draw_laser(accent)
+		TurretData.TurretType.MLRS:
+			_draw_mlrs(accent)
+		TurretData.TurretType.DRONE:
+			_draw_drone_pad(accent)
 
 	# Upgrade level tactical pips along lower rim
 	var pip_count: int = level + 1
@@ -477,3 +712,154 @@ func _draw_cryo(accent: Color) -> void:
 	draw_arc(_xf(Vector2(-1.0, 0.0)), 9.6, 0.0, TAU, 24, Color(0.12, 0.15, 0.17), 1.4, true)
 	draw_circle(_xf(Vector2(-1.0, 0.0)), 5.8, Color(0.20, 0.66, 0.88, glow))
 	draw_circle(_xf(Vector2(-1.6, -0.8)), 2.8, Color(0.84, 0.98, 1.0, glow))
+
+func _draw_laser(accent: Color) -> void:
+	# DragonFire Directed-Energy High-Energy Laser Turret
+	var ramp_u: float = clampf(_laser_ramp_t / 2.6, 0.0, 1.0) if _laser_active else 0.0
+	var pulse: float = 0.65 + 0.35 * sin(_cryo_pulse * 1.4)
+	var glow_col: Color = accent.lerp(Color(1.0, 0.88, 0.95), ramp_u * 0.65)
+
+	# Side capacitor heat-sink rails (grow with upgrades)
+	var rail_len: float = 15.0 + float(level) * 1.8
+	for side: float in [-1.0, 1.0]:
+		var y0: float = side * 6.5
+		var y1: float = side * (11.5 + float(level) * 0.7)
+		var rail: Array[Vector2] = [
+			Vector2(rail_len * 0.55, minf(y0, y1)), Vector2(rail_len * 0.55, maxf(y0, y1)),
+			Vector2(-rail_len * 0.65, maxf(y0, y1)), Vector2(-rail_len * 0.65, minf(y0, y1))
+		]
+		draw_colored_polygon(_xpoly(rail, Vector2(2.4, 2.8)), Color(0.0, 0.0, 0.0, 0.32))
+		_draw_bevel(rail, Color(0.24, 0.26, 0.30))
+		# Illuminated thermal radiator fins
+		for fx: float in [-7.0, -2.5, 2.0, 6.5]:
+			if fx > 3.0 and level < 2:
+				continue
+			draw_line(_xf(Vector2(fx, y0)), _xf(Vector2(fx, y1)), Color(glow_col.r, glow_col.g, glow_col.b, 0.55 + ramp_u * 0.45), 1.6, true)
+
+	# Sleek armored optical director housing
+	var body: Array[Vector2] = [
+		Vector2(12.5, -6.4), Vector2(6.0, -10.0), Vector2(-11.0, -9.5),
+		Vector2(-14.0, -4.5), Vector2(-14.0, 4.5), Vector2(-11.0, 9.5),
+		Vector2(6.0, 10.0), Vector2(12.5, 6.4)
+	]
+	draw_colored_polygon(_xpoly(body, Vector2(2.6, 3.0)), Color(0.0, 0.0, 0.0, 0.36))
+	_draw_bevel(body, Color(0.32, 0.34, 0.38))
+
+	# Focusing beam director barrel & sapphire emitter lens
+	var emitter_len: float = 20.5 + float(level) * 1.4
+	draw_line(_xf(Vector2(6.0, 0.0)), _xf(Vector2(emitter_len, 0.0)), Color(0.12, 0.13, 0.16), 8.2, true)
+	draw_line(_xf(Vector2(7.0, 0.0)), _xf(Vector2(emitter_len - 1.5, 0.0)), Color(0.46, 0.50, 0.56), 4.2, true)
+	# Focusing collar rings
+	for rx_pos: float in [11.5, 16.0, 19.5]:
+		if rx_pos > 17.0 and level < 1:
+			continue
+		draw_line(_xf(Vector2(rx_pos, -5.2)), _xf(Vector2(rx_pos, 5.2)), glow_col, 2.0, true)
+
+	# Glowing optical crystal aperture at muzzle
+	draw_circle(_xf(Vector2(emitter_len, 0.0)), 3.6 + ramp_u * 1.6, Color(glow_col.r, glow_col.g, glow_col.b, 0.85))
+	draw_circle(_xf(Vector2(emitter_len, 0.0)), 1.8 + ramp_u * 0.9, Color(1.0, 0.95, 0.98, 0.96))
+
+	# Central power core dome
+	draw_circle(_xf(Vector2(-2.0, 0.0)), 6.2, Color(0.16, 0.17, 0.20))
+	draw_arc(_xf(Vector2(-2.0, 0.0)), 6.2, 0.0, TAU, 20, Color(0.54, 0.58, 0.64), 1.2, true)
+	draw_circle(_xf(Vector2(-2.0, 0.0)), 3.6, Color(glow_col.r, glow_col.g, glow_col.b, 0.65 + 0.35 * pulse))
+	if level >= 3:
+		# Dual auxiliary beam-splitter prongs at Lv 4
+		for side: float in [-1.0, 1.0]:
+			draw_line(_xf(Vector2(10.0, side * 6.8)), _xf(Vector2(emitter_len + 1.5, side * 3.2)), Color(0.55, 0.58, 0.64), 1.8, true)
+
+func _draw_mlrs(accent: Color) -> void:
+	# HIMARS / GMLRS Precision Rocket Salvo Pod
+	var rx: float = -recoil * 0.55
+	var tubes: int = 3 + level # 3 -> 4 -> 5 -> 6 tubes
+
+	# Heavy armored slew cradle & rear blast deflector
+	var cradle: Array[Vector2] = [
+		Vector2(10.0 + rx, -13.5), Vector2(10.0 + rx, 13.5),
+		Vector2(-14.5 + rx, 13.5), Vector2(-14.5 + rx, -13.5)
+	]
+	draw_colored_polygon(_xpoly(cradle, Vector2(3.0, 3.6)), Color(0.0, 0.0, 0.0, 0.38))
+	_draw_bevel(cradle, Color(0.32, 0.35, 0.28))
+
+	# Side armored truss frames + amber tactical hazard stripe
+	var top_deck: Array[Vector2] = [
+		Vector2(8.5 + rx, -11.5), Vector2(8.5 + rx, 11.5),
+		Vector2(-12.5 + rx, 11.5), Vector2(-12.5 + rx, -11.5)
+	]
+	_draw_bevel(top_deck, Color(0.38, 0.41, 0.34), Color(0.14, 0.16, 0.12))
+	draw_line(_xf(Vector2(-8.0 + rx, -11.2)), _xf(Vector2(-8.0 + rx, 11.2)), accent, 2.8, true)
+
+	# Rear exhaust blast vent plate
+	draw_line(_xf(Vector2(-14.2 + rx, -11.5)), _xf(Vector2(-14.2 + rx, 11.5)), Color(0.10, 0.10, 0.10), 3.4, true)
+
+	# Individual GMLRS rocket launch tubes + glowing orange warhead tips
+	for i in range(tubes):
+		var frac: float = (float(i) / maxf(1.0, float(tubes - 1))) * 2.0 - 1.0
+		var ty: float = frac * 9.8
+		draw_line(_xf(Vector2(-6.5 + rx, ty)), _xf(Vector2(12.5 + rx, ty)), Color(0.12, 0.13, 0.11), 3.4, true)
+		draw_line(_xf(Vector2(-5.5 + rx, ty)), _xf(Vector2(11.0 + rx, ty)), Color(0.46, 0.48, 0.43), 1.6, true)
+		# Ready warhead nosecone (dims slightly during reload)
+		var loaded: bool = (_cooldown <= 0.6 or _salvo_remaining > 0)
+		var tip_col: Color = accent if loaded else Color(0.24, 0.24, 0.22)
+		draw_circle(_xf(Vector2(12.2 + rx, ty)), 1.9, tip_col)
+		if loaded:
+			draw_circle(_xf(Vector2(12.8 + rx, ty)), 0.8, Color(1.0, 0.94, 0.72))
+
+	# Fire-control GPS / target acquisition mast on side
+	draw_circle(_xf(Vector2(-11.0, -9.5)), 2.8, Color(0.18, 0.20, 0.18))
+	draw_circle(_xf(Vector2(-11.0, -9.5)), 1.3, Color(0.45, 0.96, 0.56))
+
+func _draw_drone_pad(accent: Color) -> void:
+	# Tactical Hunter-Killer UAV Launch & Control Pad
+	var armed: bool = can_launch_drone()
+	var hunting: bool = (active_drone != null and is_instance_valid(active_drone))
+
+	# Helipad / UAV launch deck markings (non-rotating clean landing H-pad)
+	draw_circle(Vector2.ZERO, 14.5, Color(0.16, 0.19, 0.17))
+	draw_arc(Vector2.ZERO, 13.8, 0.0, TAU, 32, Color(accent.r, accent.g, accent.b, 0.65 if armed else 0.28), 1.6, true)
+
+	# Pad corner strobe LEDs
+	var pulse: float = 0.5 + 0.5 * sin(_cryo_pulse * 1.6)
+	var led_col: Color = accent if armed else (Color(1.0, 0.72, 0.22) if hunting else Color(0.95, 0.34, 0.24))
+	for i in range(4):
+		var a: float = float(i) * PI * 0.5 + PI * 0.25
+		draw_circle(Vector2.from_angle(a) * 14.2, 1.8, Color(led_col.r, led_col.g, led_col.b, 0.55 + 0.45 * pulse))
+
+	# Rearm progress arc when rearming
+	if not armed and not hunting and rearm_timer > 0.0:
+		var max_r: float = maxf(0.1, float(get_stats().get("rearm_time", 4.0)))
+		var frac: float = clampf(1.0 - rearm_timer / max_r, 0.0, 1.0)
+		draw_arc(Vector2.ZERO, 11.2, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, accent, 2.4, true)
+
+	# Rotating ISR datalink radar bar on rim
+	var dish_pos := _xf(Vector2(-10.5, 0.0))
+	var dish_p1 := _xf(Vector2(-10.5, -6.8))
+	var dish_p2 := _xf(Vector2(-10.5, 6.8))
+	draw_line(dish_p1, dish_p2, Color(0.12, 0.14, 0.12), 4.0, true)
+	draw_line(dish_p1, dish_p2, Color(0.70, 0.78, 0.70), 1.8, true)
+	draw_circle(dish_pos, 2.2, led_col)
+
+	# HOLD mode amber indicator badge on pad
+	if drone_hold_mode:
+		draw_arc(Vector2.ZERO, 16.8, 0.0, TAU, 28, Color(1.0, 0.76, 0.24, 0.72), 1.5, true)
+
+	# Visible docked Hunter-Killer Quad-UAV sitting on the pad when ARMED!
+	if armed:
+		for ao: Vector2 in [Vector2(6.8, -6.8), Vector2(6.8, 6.8), Vector2(-6.8, -6.8), Vector2(-6.8, 6.8)]:
+			var p := _xf(ao)
+			draw_line(Vector2.ZERO, p, Color(0.14, 0.16, 0.14), 2.2, true)
+			draw_circle(p, 3.8, Color(0.24, 0.28, 0.25, 0.75))
+			draw_arc(p, 3.8, 0.0, TAU, 12, Color(accent.r, accent.g, accent.b, 0.55), 1.0, true)
+		var uav: Array[Vector2] = [
+			Vector2(8.8, 0.0), Vector2(3.5, 3.6), Vector2(-7.2, 2.8),
+			Vector2(-8.5, 0.0), Vector2(-7.2, -2.8), Vector2(3.5, -3.6)
+		]
+		_draw_bevel(uav, Color(0.26, 0.31, 0.26), Color(0.08, 0.10, 0.08))
+		draw_circle(_xf(Vector2(4.6, 0.0)), 2.0, accent)
+		if level >= 2:
+			for side: float in [-1.0, 1.0]:
+				draw_line(_xf(Vector2(1.5, side * 3.0)), _xf(Vector2(-4.5, side * 6.5)), accent, 1.6, true)
+	else:
+		# Empty launch cradle crosshairs
+		draw_line(Vector2(-5.5, 0.0), Vector2(5.5, 0.0), Color(0.32, 0.36, 0.32, 0.7), 1.4, true)
+		draw_line(Vector2(0.0, -5.5), Vector2(0.0, 5.5), Color(0.32, 0.36, 0.32, 0.7), 1.4, true)

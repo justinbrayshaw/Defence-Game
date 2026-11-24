@@ -34,6 +34,7 @@ var placing_type: Variant = null # TurretData.TurretType or null
 var selected_turret: Turret = null
 var airstrike_cd: float = 0.0
 var airstrike_aiming: bool = false
+var drone_assign_aiming: bool = false
 var pending_bombs: Array[Dictionary] = []
 
 # Camera & input state
@@ -135,6 +136,8 @@ func _connect_hud() -> void:
 	_hud.upgrade_requested.connect(_on_upgrade_selected)
 	_hud.target_mode_requested.connect(_on_cycle_target_mode)
 	_hud.sell_requested.connect(_on_sell_selected)
+	_hud.drone_hold_toggled.connect(_on_drone_hold_toggled)
+	_hud.drone_assign_requested.connect(_on_drone_assign_requested)
 
 func _get_fit_zoom() -> float:
 	var vp: Vector2 = get_viewport_rect().size
@@ -167,6 +170,7 @@ func _clear_battlefield() -> void:
 	selected_turret = null
 	placing_type = null
 	airstrike_aiming = false
+	drone_assign_aiming = false
 	_terrain.placement_active = false
 	_terrain.hovered_pad_index = -1
 
@@ -371,6 +375,18 @@ func _update_hover_feedback() -> void:
 	if airstrike_aiming:
 		_fx.airstrike_aim_pos = mpos
 
+	if drone_assign_aiming:
+		if selected_turret == null or not is_instance_valid(selected_turret) or not selected_turret.can_launch_drone():
+			drone_assign_aiming = false
+	_fx.drone_assign_aiming = drone_assign_aiming
+	if drone_assign_aiming:
+		_fx.drone_assign_pos = mpos
+		var hov := _find_enemy_at(mpos, 46.0)
+		_fx.drone_assign_has_target = (hov != null)
+		if hov != null:
+			_fx.drone_assign_target_pos = hov.position
+			_fx.drone_assign_target_radius = hov.hit_radius
+
 	if placing_type != null:
 		var cfg := TurretData.get_config(placing_type)
 		var lv0: Dictionary = cfg["levels"][0]
@@ -382,6 +398,23 @@ func _update_hover_feedback() -> void:
 		_terrain.placement_active = false
 
 	_terrain.hovered_pad_index = _find_pad_at(mpos, 32.0)
+
+func _find_enemy_at(world_pos: Vector2, max_dist: float) -> Enemy:
+	if _enemies_node == null:
+		return null
+	var best: Enemy = null
+	var best_d: float = max_dist
+	for child in _enemies_node.get_children():
+		if not (child is Enemy) or not is_instance_valid(child):
+			continue
+		var e: Enemy = child
+		if not e.alive:
+			continue
+		var d: float = world_pos.distance_to(e.position) - e.hit_radius * 0.55
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
 
 func _find_pad_at(world_pos: Vector2, max_dist: float) -> int:
 	var pads: Array = map_data["pads"]
@@ -411,17 +444,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_1:
-				_on_turret_card_selected(TurretData.TurretType.VULCAN)
-			KEY_2:
-				_on_turret_card_selected(TurretData.TurretType.CANNON)
-			KEY_3:
-				_on_turret_card_selected(TurretData.TurretType.MISSILE)
-			KEY_4:
-				_on_turret_card_selected(TurretData.TurretType.CRYO)
+		var kc: Key = event.keycode
+		if kc >= KEY_1 and kc <= KEY_7:
+			var ordered := TurretData.get_all_types()
+			var idx: int = int(kc) - int(KEY_1)
+			if idx >= 0 and idx < ordered.size():
+				_on_turret_card_selected(ordered[idx])
+			return
+		match kc:
 			KEY_Q:
 				_on_airstrike_requested()
+			KEY_F:
+				_on_drone_assign_requested()
+			KEY_H:
+				_on_drone_hold_toggled()
 			KEY_N:
 				_on_next_wave_requested()
 			KEY_SPACE:
@@ -465,6 +501,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _cancel_modes() -> void:
 	placing_type = null
 	airstrike_aiming = false
+	drone_assign_aiming = false
 	_select_turret(null)
 	_refresh_hud()
 
@@ -472,6 +509,16 @@ func _handle_left_click(world_pos: Vector2) -> void:
 	# 1. Execute Hellfire Air Strike if aiming
 	if airstrike_aiming:
 		_trigger_airstrike(world_pos)
+		return
+
+	# 1.5. Execute Manual Hunter Drone target lock if aiming
+	if drone_assign_aiming:
+		var target_enemy := _find_enemy_at(world_pos, 46.0)
+		if target_enemy != null and selected_turret != null and is_instance_valid(selected_turret):
+			if selected_turret.assign_manual_target(target_enemy):
+				_fx.spawn_floating_text(target_enemy.position + Vector2(0, -18), "DRONE LOCKED!", Color(0.56, 0.96, 0.34))
+		drone_assign_aiming = false
+		_refresh_hud()
 		return
 
 	var pad_idx := _find_pad_at(world_pos, 32.0)
@@ -530,6 +577,7 @@ func _try_place_turret(t_type: TurretData.TurretType, pad_idx: int) -> void:
 		_select_turret(turret)
 
 func _select_turret(t: Turret) -> void:
+	drone_assign_aiming = false
 	if selected_turret != null and is_instance_valid(selected_turret):
 		selected_turret.selected = false
 		selected_turret.queue_redraw()
@@ -544,6 +592,7 @@ func _on_turret_card_selected(t_type: TurretData.TurretType) -> void:
 		return
 	_sfx.play("ui_click")
 	airstrike_aiming = false
+	drone_assign_aiming = false
 	if placing_type == t_type:
 		placing_type = null
 	else:
@@ -556,8 +605,29 @@ func _on_airstrike_requested() -> void:
 		return
 	_sfx.play("ui_click")
 	placing_type = null
+	drone_assign_aiming = false
 	_select_turret(null)
 	airstrike_aiming = not airstrike_aiming
+	_refresh_hud()
+
+func _on_drone_hold_toggled() -> void:
+	if selected_turret == null or not is_instance_valid(selected_turret):
+		return
+	if selected_turret.turret_type != TurretData.TurretType.DRONE:
+		return
+	selected_turret.toggle_drone_hold()
+	_sfx.play("ui_click")
+	_refresh_hud()
+
+func _on_drone_assign_requested() -> void:
+	if selected_turret == null or not is_instance_valid(selected_turret):
+		return
+	if not selected_turret.can_launch_drone():
+		return
+	_sfx.play("ui_click")
+	placing_type = null
+	airstrike_aiming = false
+	drone_assign_aiming = not drone_assign_aiming
 	_refresh_hud()
 
 func _trigger_airstrike(target_pos: Vector2) -> void:
@@ -681,7 +751,44 @@ func _spawn_enemy(e_type: EnemyData.EnemyType, lane_idx: int = 0) -> void:
 	enemy.setup(e_type, path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
 	enemy.died.connect(_on_enemy_died)
 	enemy.reached_base.connect(_on_enemy_reached_base)
+	enemy.spawn_sub_unit.connect(_on_enemy_spawn_sub_unit)
 	_enemies_node.add_child(enemy)
+
+func _on_enemy_spawn_sub_unit(sub_type: EnemyData.EnemyType, from_pos: Vector2) -> void:
+	if game_over or not game_started:
+		return
+	var air_pts: PackedVector2Array = map_data["air_path"]
+	var sub_path := PackedVector2Array()
+	sub_path.append(from_pos)
+
+	# Join the air corridor ahead of the launch truck so micro-drones fly cleanly toward HQ
+	var best_idx: int = air_pts.size() - 1
+	var best_d: float = INF
+	for i in range(air_pts.size()):
+		var d: float = from_pos.distance_to(air_pts[i])
+		if d < best_d:
+			best_d = d
+			best_idx = i
+	var start_idx: int = mini(air_pts.size() - 1, best_idx + 1)
+	for i in range(start_idx, air_pts.size()):
+		sub_path.append(air_pts[i])
+	if sub_path.size() < 2:
+		sub_path.append(map_data["base_pos"])
+
+	var wave_scale: float = 1.0 + float(maxi(0, current_wave_index)) * 0.085
+	var sector_hp_scale: float = float(map_data.get("hp_scale", 1.0))
+	var hp_mult: float = float(diff_cfg["hp_mult"]) * wave_scale * sector_hp_scale
+	var spd_mult: float = float(diff_cfg["speed_mult"])
+	var rew_mult: float = float(diff_cfg["reward_mult"])
+
+	var drone_enemy := Enemy.new()
+	drone_enemy.setup(sub_type, sub_path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
+	drone_enemy.died.connect(_on_enemy_died)
+	drone_enemy.reached_base.connect(_on_enemy_reached_base)
+	_enemies_node.add_child(drone_enemy)
+
+	_fx.spawn_spark_hit(from_pos, Color(1.0, 0.62, 0.20), 5)
+	_sfx.play("uav_launch", -4.5, 0.10, 0.08)
 
 func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 	cash += enemy.reward
@@ -689,26 +796,29 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 	if killer_turret != null and is_instance_valid(killer_turret) and killer_turret is Turret:
 		(killer_turret as Turret).register_kill()
 
-	var is_heavy := (enemy.enemy_type == EnemyData.EnemyType.TANK or enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy.enemy_type == EnemyData.EnemyType.BOMBER)
-	var blast_r := 54.0 if enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT else (36.0 if is_heavy else 24.0)
+	var is_boss := (enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy.enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
+	var is_heavy := is_boss or (enemy.enemy_type == EnemyData.EnemyType.TANK or enemy.enemy_type == EnemyData.EnemyType.APS_TANK or enemy.enemy_type == EnemyData.EnemyType.BOMBER)
+	var blast_r := 56.0 if is_boss else (36.0 if is_heavy else (18.0 if enemy.enemy_type == EnemyData.EnemyType.FPV_DRONE else 24.0))
 	if _is_festive_map():
 		_fx.spawn_festive_pop(enemy.position, blast_r)
-		_fx.spawn_floating_text(enemy.position + Vector2(0, -14), "+$%d" % enemy.reward, Color(1.0, 0.90, 0.36))
+		if enemy.reward > 0:
+			_fx.spawn_floating_text(enemy.position + Vector2(0, -14), "+$%d" % enemy.reward, Color(1.0, 0.90, 0.36))
 		if not enemy.is_air:
 			_decals.add_gift_box(enemy.position, enemy.heading, float(enemy.config["scale"]))
-		if enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT:
+		if is_boss:
 			_sfx.play("festive_chime", -1.5, 0.04, 0.08)
 			_add_camera_shake(5.5)
 		else:
 			_sfx.play("upgrade" if is_heavy else "explosion_small", -4.5, 0.16, 0.05)
 	else:
 		_fx.spawn_explosion(enemy.position, blast_r, is_heavy)
-		_fx.spawn_floating_text(enemy.position + Vector2(0, -14), "+$%d" % enemy.reward, Color(0.98, 0.86, 0.36))
+		if enemy.reward > 0:
+			_fx.spawn_floating_text(enemy.position + Vector2(0, -14), "+$%d" % enemy.reward, Color(0.98, 0.86, 0.36))
 		if not enemy.is_air:
 			_decals.add_wreck(enemy.position, enemy.heading, float(enemy.config["scale"]))
 		if is_heavy:
 			_sfx.play("explosion_big", -1.5, 0.12, 0.06)
-			_add_camera_shake(7.5 if enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT else 4.2)
+			_add_camera_shake(7.5 if is_boss else 4.2)
 		else:
 			_sfx.play("explosion_small", -3.0, 0.14, 0.05)
 
@@ -747,6 +857,7 @@ func _trigger_end_game(victory: bool) -> void:
 	_sim_world.process_mode = Node.PROCESS_MODE_DISABLED
 	placing_type = null
 	airstrike_aiming = false
+	drone_assign_aiming = false
 	_select_turret(null)
 	var cleared := waves.size() if victory else maxi(0, current_wave_index)
 	var secret_evt: Dictionary = {} if bool(map_data.get("is_secret", false)) else SeasonalData.get_active_seasonal_event()
@@ -777,12 +888,19 @@ func _on_cycle_target_mode() -> void:
 func _on_sell_selected() -> void:
 	if selected_turret == null or not is_instance_valid(selected_turret):
 		return
-	var refund := selected_turret.get_sell_value()
-	var pos := selected_turret.position
-	var pad_idx := selected_turret.pad_index
+	var sold := selected_turret
+	var refund := sold.get_sell_value()
+	var pos := sold.position
+	var pad_idx := sold.pad_index
 	cash += refund
 	_terrain.occupied_pads.erase(pad_idx)
-	selected_turret.queue_free()
+	# Clear references from any in-flight projectiles/fire zones fired by the sold turret
+	for p in _projectiles_node.get_children():
+		if (p is Projectile or p is FireZone) and p.source_turret == sold:
+			p.source_turret = null
+	sold.cleanup_on_sell()
+	drone_assign_aiming = false
+	sold.queue_free()
 	selected_turret = null
 	_sfx.play("sell")
 	_fx.spawn_floating_text(pos + Vector2(0, -16), "+$%d" % refund, Color(0.98, 0.84, 0.36))
@@ -825,4 +943,4 @@ func _refresh_hud() -> void:
 	var can_call := (not all_launched) and (waiting_for_next_wave or active_spawners.is_empty())
 	var early_bonus := _get_early_wave_bonus()
 	_hud.update_dock(cash, placing_type, airstrike_cd, AIRSTRIKE_COOLDOWN, airstrike_aiming, can_call, current_wave_index + 2, early_bonus, all_launched)
-	_hud.update_inspector(selected_turret, cash)
+	_hud.update_inspector(selected_turret, cash, drone_assign_aiming)
