@@ -236,6 +236,7 @@ func _analyze_map_geometry(m: Dictionary) -> Dictionary:
 	var air_pads_laser1 := 0
 	var air_pads_sam4 := 0
 	var orphan_pads: Array = []
+	var lv4_unreachable_pads: Array = []
 
 	# Track per-lane best single-pad coverage at Lv1 Vulcan & Lv1 Cannon/Laser
 	var pad_lane_cov_v1: Array = [] # [pad_idx][lane_idx] -> covered length
@@ -283,6 +284,8 @@ func _analyze_map_geometry(m: Dictionary) -> Dictionary:
 
 		if min_g_dist > _vulcan_r1 and d_air > _sam_r1:
 			orphan_pads.append(pi)
+		if min_g_dist > _mlrs_r4 and d_air > _sam_r4:
+			lv4_unreachable_pads.append(pi)
 
 		pad_lane_cov_v1.append(cov_v1)
 		pad_lane_cov_mid.append(cov_mid)
@@ -387,6 +390,7 @@ func _analyze_map_geometry(m: Dictionary) -> Dictionary:
 		"shared_lane_pads_mid": shared_lane_pads_mid,
 		"avg_lane_pad_share": snappedf(avg_lane_pad_share, 0.01),
 		"orphan_pads": orphan_pads,
+		"lv4_unreachable_pads": lv4_unreachable_pads,
 		# Internal arrays kept for Wave 1 & per-wave calculations (stripped before JSON export)
 		"_pad_lane_cov_v1": pad_lane_cov_v1,
 		"_pad_lane_cov_mid": pad_lane_cov_mid,
@@ -581,11 +585,12 @@ func _audit_sector_difficulty(
 	for wi in range(waves.size()):
 		var w_num := wi + 1
 		var wave_def: Dictionary = waves[wi]
-		var wave_scale: float = 1.0 + float(wi) * WAVE_HP_STEP
+		var wave_scale: float = WaveDataScript.get_wave_hp_scale(wi, waves.size())
 		var hp_mult: float = hp_mult_diff * wave_scale * sector_hp_scale
+		var wave_rew_mult: float = rew_mult * WaveDataScript.get_wave_reward_scale(wi, waves.size())
 
 		# Analyze wave enemy demand & exact 0.5s timeline peak DPS
-		var demand := _compute_wave_demand(wave_def, hp_mult, spd_mult, rew_mult, geom)
+		var demand := _compute_wave_demand(wave_def, hp_mult, spd_mult, wave_rew_mult, geom)
 
 		# Dedicated Wave 1 geometric survivability audit
 		var w_real_ratio := 0.0
@@ -596,7 +601,7 @@ func _audit_sector_difficulty(
 		var opt_dps_cap := 0.0
 
 		if wi == 0:
-			wave1_detail = _audit_wave1_exact(wave_def, start_cash, hp_mult, spd_mult, rew_mult, geom, demand)
+			wave1_detail = _audit_wave1_exact(wave_def, start_cash, hp_mult, spd_mult, wave_rew_mult, geom, demand)
 			w_real_ratio = float(wave1_detail["real_ratio"])
 			w_opt_ratio = float(wave1_detail["opt_ratio"])
 			real_dps_cap = float(wave1_detail["real_dps"])
@@ -1748,7 +1753,9 @@ func _build_markdown_report(res: Dictionary, baseline: Dictionary) -> String:
 		if bool(g["air_gap_flag"]):
 			notable.append("- **AIR_GAP**: Only %d pads reach `air_path` at SAM Lv1 (`%.1f%%` air-path coverage)." % [int(g["air_pads_sam1"]), float(g["air_cov_sam1_pct"])])
 		if (g["orphan_pads"] as Array).size() > 0:
-			notable.append("- **ORPHAN_PADS**: Pad indices `%s` are out of Vulcan Lv1 ground range AND SAM Lv1 air range." % [str(g["orphan_pads"])])
+			var unreach: Array = g.get("lv4_unreachable_pads", [])
+			var reach_note := (" (LV4-UNREACHABLE: %s)" % str(unreach)) if unreach.size() > 0 else " (all reachable at Lv4 MLRS/SAM)"
+			notable.append("- **ORPHAN_PADS**: Pad indices `%s` are out of Vulcan Lv1 ground range AND SAM Lv1 air range%s." % [str(g["orphan_pads"]), reach_note])
 		if int(li["dead_lane_wave_count"]) > 0:
 			var sample_w := PackedStringArray()
 			var dlw: Array = li["dead_lane_waves"]

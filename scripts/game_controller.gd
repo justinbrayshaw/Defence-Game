@@ -740,12 +740,12 @@ func _spawn_enemy(e_type: EnemyData.EnemyType, lane_idx: int = 0) -> void:
 	var g_paths: Array = map_data["ground_paths"]
 	var path: PackedVector2Array = map_data["air_path"] if is_air else g_paths[lane_idx % g_paths.size()]
 
-	# Per-wave + per-sector HP escalation
-	var wave_scale: float = 1.0 + float(maxi(0, current_wave_index)) * 0.085
+	# Per-wave + per-sector HP escalation & gentle late-wave reward taper
+	var wave_scale: float = WaveData.get_wave_hp_scale(current_wave_index, waves.size())
 	var sector_hp_scale: float = float(map_data.get("hp_scale", 1.0))
 	var hp_mult: float = float(diff_cfg["hp_mult"]) * wave_scale * sector_hp_scale
 	var spd_mult: float = float(diff_cfg["speed_mult"])
-	var rew_mult: float = float(diff_cfg["reward_mult"])
+	var rew_mult: float = float(diff_cfg["reward_mult"]) * WaveData.get_wave_reward_scale(current_wave_index, waves.size())
 
 	var enemy := Enemy.new()
 	enemy.setup(e_type, path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
@@ -775,11 +775,11 @@ func _on_enemy_spawn_sub_unit(sub_type: EnemyData.EnemyType, from_pos: Vector2) 
 	if sub_path.size() < 2:
 		sub_path.append(map_data["base_pos"])
 
-	var wave_scale: float = 1.0 + float(maxi(0, current_wave_index)) * 0.085
+	var wave_scale: float = WaveData.get_wave_hp_scale(current_wave_index, waves.size())
 	var sector_hp_scale: float = float(map_data.get("hp_scale", 1.0))
 	var hp_mult: float = float(diff_cfg["hp_mult"]) * wave_scale * sector_hp_scale
 	var spd_mult: float = float(diff_cfg["speed_mult"])
-	var rew_mult: float = float(diff_cfg["reward_mult"])
+	var rew_mult: float = float(diff_cfg["reward_mult"]) * WaveData.get_wave_reward_scale(current_wave_index, waves.size())
 
 	var drone_enemy := Enemy.new()
 	drone_enemy.setup(sub_type, sub_path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
