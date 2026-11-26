@@ -27,7 +27,7 @@ var current_wave_index: int = -1 # -1 before Wave 1
 var active_spawners: Array[Dictionary] = []
 var inter_wave_timer: float = 0.0
 var waiting_for_next_wave: bool = false
-var wave_bonus_awarded: bool = false
+var _unclaimed_wave_bonuses: Array[int] = []
 
 # Placement / selection / ability state
 var placing_type: Variant = null # TurretData.TurretType or null
@@ -166,6 +166,7 @@ func _clear_battlefield() -> void:
 	_decals.clear_all()
 	_fx.clear_all()
 	active_spawners.clear()
+	_unclaimed_wave_bonuses.clear()
 	pending_bombs.clear()
 	selected_turret = null
 	placing_type = null
@@ -235,7 +236,7 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 	current_wave_index = -1
 	inter_wave_timer = 0.0
 	waiting_for_next_wave = true
-	wave_bonus_awarded = false
+	_unclaimed_wave_bonuses.clear()
 	airstrike_cd = 0.0
 	game_started = true
 	game_over = false
@@ -283,11 +284,19 @@ func _process(delta: float) -> void:
 	# Active wave spawners
 	_update_spawners(delta)
 
-	# Check wave completion & inter-wave countdown
+	# Award wave-clear bonus per wave as soon as all units of that wave are cleared
+	# (even if the player manually called the next wave early!)
+	_check_unclaimed_wave_bonuses()
+
+	# Check wave completion & inter-wave auto-launch countdown
+	# (auto-launch waits until all enemies are cleared; manual [N] early call is available once spawning finishes)
 	var enemies_alive := _count_alive_enemies()
 	var spawning_done := active_spawners.is_empty()
 
-	if spawning_done and current_wave_index >= 0 and current_wave_index < waves.size() - 1:
+	if spawning_done and enemies_alive == 0 and current_wave_index >= 0:
+		if current_wave_index == waves.size() - 1:
+			_trigger_end_game(true)
+			return
 		if not waiting_for_next_wave:
 			waiting_for_next_wave = true
 			inter_wave_timer = INTER_WAVE_TIME
@@ -295,9 +304,6 @@ func _process(delta: float) -> void:
 			inter_wave_timer -= delta
 			if inter_wave_timer <= 0.0:
 				_launch_next_wave(false)
-	elif spawning_done and current_wave_index == waves.size() - 1 and enemies_alive == 0:
-		_trigger_end_game(true)
-		return
 
 	_refresh_hud()
 
@@ -680,7 +686,7 @@ func _on_next_wave_requested() -> void:
 		return
 	if not waiting_for_next_wave and not active_spawners.is_empty():
 		return
-	var is_early := (current_wave_index >= 0 and inter_wave_timer > 0.5)
+	var is_early := (current_wave_index >= 0 and _get_early_wave_bonus() > 0)
 	_launch_next_wave(is_early)
 
 func _launch_next_wave(early_call: bool) -> void:
@@ -695,7 +701,7 @@ func _launch_next_wave(early_call: bool) -> void:
 	current_wave_index += 1
 	waiting_for_next_wave = false
 	inter_wave_timer = 0.0
-	wave_bonus_awarded = false
+	_unclaimed_wave_bonuses.append(current_wave_index)
 
 	var wave_def: Dictionary = waves[current_wave_index]
 	var groups: Array = wave_def["groups"]
@@ -707,6 +713,7 @@ func _launch_next_wave(early_call: bool) -> void:
 			"timer": float(g["delay"]),
 			"lane": int(g.get("lane", 0)),
 			"spawned": 0,
+			"wave_index": current_wave_index,
 		})
 
 	_sfx.play("wave_start", -1.5, 0.0)
@@ -714,9 +721,36 @@ func _launch_next_wave(early_call: bool) -> void:
 	_refresh_hud()
 
 func _get_early_wave_bonus() -> int:
-	if current_wave_index < 0 or not waiting_for_next_wave or inter_wave_timer <= 0.5:
+	if current_wave_index < 0:
 		return 0
-	return maxi(5, int(round(inter_wave_timer * 2.2)))
+	if waiting_for_next_wave:
+		if inter_wave_timer <= 0.5:
+			return 0
+		return maxi(5, int(round(inter_wave_timer * 2.2)))
+	if active_spawners.is_empty():
+		return int(round(INTER_WAVE_TIME * 2.2))
+	return 0
+
+func _check_unclaimed_wave_bonuses() -> void:
+	for i in range(_unclaimed_wave_bonuses.size() - 1, -1, -1):
+		var w_idx: int = _unclaimed_wave_bonuses[i]
+		var still_spawning := false
+		for sp in active_spawners:
+			if int(sp.get("wave_index", -1)) == w_idx:
+				still_spawning = true
+				break
+		if still_spawning:
+			continue
+		var still_alive := false
+		for c in _enemies_node.get_children():
+			if c is Enemy and is_instance_valid(c) and c.alive and int(c.get_meta("wave_index", -1)) == w_idx:
+				still_alive = true
+				break
+		if not still_alive:
+			var bonus: int = int(waves[w_idx]["bonus"])
+			cash += bonus
+			_fx.spawn_floating_text(map_data["base_pos"] + Vector2(-45, -40), "WAVE CLEAR +$%d" % bonus, Color(0.40, 0.94, 0.54))
+			_unclaimed_wave_bonuses.remove_at(i)
 
 func _update_spawners(delta: float) -> void:
 	for i in range(active_spawners.size() - 1, -1, -1):
@@ -726,7 +760,7 @@ func _update_spawners(delta: float) -> void:
 			var lane_cfg: int = int(sp["lane"])
 			var spawned_idx: int = int(sp["spawned"])
 			var lane_idx: int = (spawned_idx if lane_cfg < 0 else lane_cfg)
-			_spawn_enemy(sp["type"], lane_idx)
+			_spawn_enemy(sp["type"], lane_idx, int(sp.get("wave_index", current_wave_index)))
 			sp["spawned"] = spawned_idx + 1
 			sp["remaining"] = int(sp["remaining"]) - 1
 			if int(sp["remaining"]) <= 0:
@@ -734,20 +768,22 @@ func _update_spawners(delta: float) -> void:
 			else:
 				sp["timer"] = float(sp["interval"])
 
-func _spawn_enemy(e_type: EnemyData.EnemyType, lane_idx: int = 0) -> void:
+func _spawn_enemy(e_type: EnemyData.EnemyType, lane_idx: int = 0, wave_idx: int = -1) -> void:
 	var cfg := EnemyData.get_config(e_type)
 	var is_air: bool = bool(cfg["is_air"])
 	var g_paths: Array = map_data["ground_paths"]
 	var path: PackedVector2Array = map_data["air_path"] if is_air else g_paths[lane_idx % g_paths.size()]
+	var eff_wave_idx: int = current_wave_index if wave_idx < 0 else wave_idx
 
 	# Per-wave + per-sector HP escalation & gentle late-wave reward taper
-	var wave_scale: float = WaveData.get_wave_hp_scale(current_wave_index, waves.size())
+	var wave_scale: float = WaveData.get_wave_hp_scale(eff_wave_idx, waves.size())
 	var sector_hp_scale: float = float(map_data.get("hp_scale", 1.0))
 	var hp_mult: float = float(diff_cfg["hp_mult"]) * wave_scale * sector_hp_scale
 	var spd_mult: float = float(diff_cfg["speed_mult"])
-	var rew_mult: float = float(diff_cfg["reward_mult"]) * WaveData.get_wave_reward_scale(current_wave_index, waves.size())
+	var rew_mult: float = float(diff_cfg["reward_mult"]) * WaveData.get_wave_reward_scale(eff_wave_idx, waves.size())
 
 	var enemy := Enemy.new()
+	enemy.set_meta("wave_index", eff_wave_idx)
 	enemy.setup(e_type, path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
 	enemy.died.connect(_on_enemy_died)
 	enemy.reached_base.connect(_on_enemy_reached_base)
@@ -821,13 +857,6 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 			_add_camera_shake(7.5 if is_boss else 4.2)
 		else:
 			_sfx.play("explosion_small", -3.0, 0.14, 0.05)
-
-	# Wave clear bonus when last enemy of current wave dies
-	if not wave_bonus_awarded and active_spawners.is_empty() and current_wave_index >= 0 and _count_alive_enemies() == 0:
-		wave_bonus_awarded = true
-		var bonus: int = int(waves[current_wave_index]["bonus"])
-		cash += bonus
-		_fx.spawn_floating_text(map_data["base_pos"] + Vector2(-45, -40), "WAVE CLEAR +$%d" % bonus, Color(0.40, 0.94, 0.54))
 
 	_refresh_hud()
 

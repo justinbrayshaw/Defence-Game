@@ -354,6 +354,9 @@ func _acquire_target() -> Enemy:
 
 	var best: Enemy = null
 	var best_score := -INF
+	var best_air: Enemy = null
+	var best_air_score := -INF
+	var prioritize_air := (turret_type == TurretData.TurretType.MISSILE)
 
 	for child in _enemies_container.get_children():
 		if not (child is Enemy) or not is_instance_valid(child):
@@ -380,15 +383,16 @@ func _acquire_target() -> Enemy:
 			TurretData.TargetMode.NEAREST:
 				score = -d_sq
 
-		# SAM battery subtly prioritizes air threats when tied or in FIRST mode if air is close
-		if turret_type == TurretData.TurretType.MISSILE and e.is_air and target_mode == TurretData.TargetMode.FIRST:
-			score += 0.18
-
-		if score > best_score:
+		# SAM batteries always prioritize aircraft in range over ground units across all target modes
+		if prioritize_air and e.is_air:
+			if score > best_air_score:
+				best_air_score = score
+				best_air = e
+		elif score > best_score:
 			best_score = score
 			best = e
 
-	return best
+	return best_air if (prioritize_air and best_air != null) else best
 
 func _predict_aim_position(target: Enemy) -> Vector2:
 	var stats := get_stats()

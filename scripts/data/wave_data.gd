@@ -53,29 +53,32 @@ static func get_difficulty_config(diff: Difficulty) -> Dictionary:
 	return {}
 
 # Progress-normalized per-wave HP multiplier (single source of truth for gameplay + audit).
-# Gentle through early waves (p <= 0.25) so Waves 1-6 stay fair, then ramps quadratically
-# on mid/late waves (higher on 20-30 wave sectors where player economy reaches Lv3-Lv4).
+# Gentle through early waves (p <= 0.25) so Waves 1-6 stay fair, then ramps strongly across
+# mid/late waves on 19-30 wave sectors so Lv3-Lv4 economies never coast on autopilot.
 static func get_wave_hp_scale(wave_index: int, total_waves: int) -> float:
 	var denom: float = float(maxi(1, total_waves - 1))
 	var p: float = clampf(float(maxi(0, wave_index)) / denom, 0.0, 1.0)
 	var len_t: float = clampf(float(total_waves - 15) / 15.0, 0.0, 1.0)
-	var lin_term: float = lerpf(0.86, 0.98, len_t)
-	var quad_term: float = lerpf(0.34, 1.02, len_t)
-	return 1.0 + p * lin_term + p * p * quad_term
+	var long_t: float = clampf(float(total_waves - 18) / 12.0, 0.0, 1.0)
+	var lin_term: float = lerpf(0.86, 1.02, len_t)
+	var quad_term: float = lerpf(0.34, 1.24, len_t)
+	var mid_p: float = clampf((p - 0.30) / 0.70, 0.0, 1.0)
+	var mid_push: float = pow(mid_p, 1.25) * lerpf(0.0, 0.34, long_t)
+	return 1.0 + p * lin_term + p * p * quad_term + mid_push
 
 # Gentle late-wave kill bounty taper so 19-30 wave sectors stay tense without mid-game cash floods
-# while keeping early/mid waves (p <= 0.28) at full 100% reward and preserving end-game surplus $.
+# while keeping early waves (p <= 0.22) at full 100% reward and preserving end-game surplus $.
 static func get_wave_reward_scale(wave_index: int, total_waves: int) -> float:
 	if total_waves <= 16:
 		return 1.0
 	var denom: float = float(maxi(1, total_waves - 1))
 	var p: float = clampf(float(maxi(0, wave_index)) / denom, 0.0, 1.0)
-	if p <= 0.28:
+	if p <= 0.22:
 		return 1.0
-	var t: float = (p - 0.28) / 0.72
+	var t: float = (p - 0.22) / 0.78
 	var len_factor: float = clampf(float(total_waves - 16) / 14.0, 0.0, 1.0)
-	var max_taper: float = lerpf(0.22, 0.72, len_factor)
-	return clampf(1.0 - max_taper * pow(t, 0.95), 0.26, 1.0)
+	var max_taper: float = lerpf(0.24, 0.80, len_factor)
+	return clampf(1.0 - max_taper * pow(t, 0.82), 0.18, 1.0)
 
 static func get_waves_for_map(map_id: String) -> Array[Dictionary]:
 	if map_id == "scorched_wadi":
@@ -529,8 +532,8 @@ static func get_frostline_pass_waves() -> Array[Dictionary]:
 				{"type": E.JUGGERNAUT, "count": 2, "interval": 4.2, "delay": 0.0, "lane": -1},
 				{"type": E.SKY_FORTRESS, "count": 1, "interval": 5.0, "delay": 2.2, "lane": 0},
 				{"type": E.APS_TANK, "count": 4, "interval": 1.85, "delay": 2.4, "lane": -1},
-				{"type": E.BOMBER, "count": 5, "interval": 1.65, "delay": 3.4, "lane": 0},
-				{"type": E.CHOPPER, "count": 7, "interval": 0.90, "delay": 4.8, "lane": 0},
+				{"type": E.BOMBER, "count": 5, "interval": 1.65, "delay": 4.0, "lane": 0},
+				{"type": E.CHOPPER, "count": 7, "interval": 0.90, "delay": 5.2, "lane": 0},
 			],
 		},
 		{
@@ -1019,11 +1022,12 @@ static func _build_campaign_waves(
 		var groups: Array[Dictionary] = []
 
 		# Economy-aligned wave clear bonus (no compounding intensity blowup)
-		var bonus: int = int(round(lerpf(36.0, 145.0, p) * lerpf(0.95, 1.05, tier)))
+		var bonus: int = int(round(lerpf(36.0, 125.0, p) * lerpf(0.95, 1.05, tier)))
 
-		# Smooth progression multiplier: stays modest on W1-W8, then ramps cleanly with player Lv3-Lv4 economy
-		var mid_ramp: float = pow(clampf((p - 0.22) / 0.78, 0.0, 1.0), 1.25)
-		var prog: float = (0.76 + 0.22 * minf(1.0, p / 0.25) + mid_ramp * lerpf(0.95, 1.48, tier)) * lerpf(0.92, 1.12, tier)
+		# Smooth progression multiplier: stays modest on W1-W8, then ramps strongly across mid/late
+		# waves so Lv3-Lv4 defenses on 20-30 wave sectors stay challenged all the way to the finale.
+		var mid_ramp: float = pow(clampf((p - 0.24) / 0.76, 0.0, 1.0), 1.15)
+		var prog: float = (0.76 + 0.22 * minf(1.0, p / 0.25) + mid_ramp * lerpf(1.02, 1.66, tier)) * lerpf(0.92, 1.10, tier)
 
 		if w_num == 1:
 			# Opening scouts across all lanes
@@ -1069,141 +1073,163 @@ static func _build_campaign_waves(
 				groups.append({"type": E.TANK, "count": tanks, "interval": 2.10 * pace, "delay": 4.8, "lane": 1})
 				groups.append({"type": E.JEEP, "count": jeeps, "interval": 0.74 * pace, "delay": 6.0, "lane": 0})
 		elif w_num == count:
-			# Epic multi-domain boss finale (crisp ~38-52 elite units, multi-stage staggered assault)
-			bonus = int(round(lerpf(280.0, 380.0, tier)))
-			var jugs: int = clampi(int(round(lerpf(3.0, 5.0, tier) * armor_bias)), 3, 5)
-			var skies: int = clampi(int(round(lerpf(2.0, 3.2, tier) * air_bias)), 2, 3)
-			var aps: int = clampi(int(round(lerpf(5.0, 8.5, tier) * armor_bias)), 5, 9)
-			var carriers: int = clampi(int(round(lerpf(3.0, 5.0, tier) * drone_bias)), 3, 5)
-			var tanks: int = clampi(int(round(lerpf(9.0, 12.5, tier))), 9, 13)
-			var bombers: int = clampi(int(round(lerpf(6.0, 8.0, tier) * air_bias)), 6, 8)
-			groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 3.4 * pace, "delay": 0.0, "lane": -1})
-			groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.60 * pace, "delay": 2.0, "lane": -1})
-			groups.append({"type": E.TANK, "count": tanks, "interval": 1.00 * pace, "delay": 3.4, "lane": -1})
-			groups.append({"type": E.SKY_FORTRESS, "count": skies, "interval": 5.2 * pace, "delay": 4.5, "lane": 0})
-			groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.0 * pace, "delay": 5.4, "lane": -1})
-			groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.55 * pace, "delay": 6.4, "lane": 0})
+			# Epic multi-domain boss finale (crisp ~40-56 elite units, multi-stage staggered assault)
+			bonus = int(round(lerpf(260.0, 360.0, tier)))
+			var jugs: int = clampi(int(round(lerpf(3.0, 4.8, tier) * armor_bias)), 3, 5)
+			var skies: int = clampi(int(round(lerpf(2.0, 3.0, tier) * air_bias)), 2, 3)
+			var aps: int = clampi(int(round(lerpf(5.0, 8.0, tier) * armor_bias)), 5, 9)
+			var carriers: int = clampi(int(round(lerpf(3.0, 4.8, tier) * drone_bias)), 3, 5)
+			var tanks: int = clampi(int(round(lerpf(8.5, 11.5, tier))), 8, 12)
+			var bombers: int = clampi(int(round(lerpf(5.5, 7.5, tier) * air_bias)), 5, 8)
+			groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 3.5 * pace, "delay": 0.0, "lane": -1})
+			groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.65 * pace, "delay": 2.2, "lane": -1})
+			groups.append({"type": E.TANK, "count": tanks, "interval": 1.05 * pace, "delay": 3.6, "lane": -1})
+			groups.append({"type": E.SKY_FORTRESS, "count": skies, "interval": 5.4 * pace, "delay": 4.8, "lane": 0})
+			groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.2 * pace, "delay": 5.8, "lane": -1})
+			groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.65 * pace, "delay": 6.8, "lane": 0})
 		else:
-			# 9 distinct rotating tactical archetypes with phase-gated boss escalation
+			# 9 distinct rotating tactical archetypes with strong back-half elite escalation
 			var arch: int = (w_num - 6) % 9
 			match arch:
 				0:
 					# Multi-lane Armor Pincer + heavy late-game spearhead
-					var total_tanks: int = clampi(int(round(7.2 * prog * armor_bias)), num_lanes * 2, 18)
-					var jeeps: int = clampi(int(round(11.0 * prog * blitz_bias)), 8, 20)
-					var t_int_mul: float = 1.38 if p < 0.30 else 1.12
+					var total_tanks: int = clampi(int(round(7.4 * prog * armor_bias)), num_lanes * 2, 20)
+					var jeeps: int = clampi(int(round(10.0 * prog * blitz_bias)), 8, 18)
+					var t_int_mul: float = 1.38 if p < 0.30 else 0.96
 					if num_lanes >= 3:
-						groups.append({"type": E.TANK, "count": total_tanks, "interval": (t_int_mul - 0.16) * pace, "delay": 0.0, "lane": -1})
+						groups.append({"type": E.TANK, "count": total_tanks, "interval": (t_int_mul - 0.14) * pace, "delay": 0.0, "lane": -1})
 					else:
 						var half_t: int = maxi(3, int(ceil(float(total_tanks) * 0.5)))
 						groups.append({"type": E.TANK, "count": half_t, "interval": t_int_mul * pace, "delay": 0.0, "lane": 0})
-						groups.append({"type": E.TANK, "count": half_t, "interval": t_int_mul * pace, "delay": 1.1, "lane": 1})
-					groups.append({"type": E.JEEP, "count": jeeps, "interval": 0.44 * pace, "delay": 3.4, "lane": -1})
-					if p >= 0.42:
-						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.8 * prog * armor_bias)), 3, 9), "interval": 1.45 * pace, "delay": 1.4, "lane": -1})
-					if p >= 0.55:
-						var jugs0: int = 1 if p < 0.72 else (2 if p < 0.88 else 3)
-						groups.append({"type": E.JUGGERNAUT, "count": jugs0, "interval": 3.4 * pace, "delay": 0.6, "lane": -1})
-						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.2 * prog * air_bias)), 3, 7), "interval": 1.50 * pace, "delay": 3.6, "lane": 0})
+						groups.append({"type": E.TANK, "count": half_t, "interval": t_int_mul * pace, "delay": 1.0, "lane": 1})
+					groups.append({"type": E.JEEP, "count": jeeps, "interval": 0.40 * pace, "delay": 3.0, "lane": -1})
+					if p >= 0.36:
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(4.2 * prog * armor_bias)), 3, 11), "interval": 1.42 * pace, "delay": 1.8, "lane": -1})
+					if p >= 0.45:
+						var jugs0: int = 1 if p < 0.58 else (2 if p < 0.74 else (3 if p < 0.88 else 4))
+						groups.append({"type": E.JUGGERNAUT, "count": jugs0, "interval": 3.2 * pace, "delay": 0.4, "lane": -1})
+						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.6 * prog * air_bias)), 3, 9), "interval": 1.48 * pace, "delay": 4.2, "lane": 0})
 				1:
 					# UAV Carrier Drone Warfare + Air Screen
-					var choppers: int = clampi(int(round(4.4 * prog * air_bias)), 4, 12)
-					var carriers: int = clampi(int(round(2.2 * prog * drone_bias)), 2, 6)
-					var apcs: int = clampi(int(round(6.2 * prog)), 5, 14)
+					var choppers: int = clampi(int(round(4.0 * prog * air_bias)), 4, 13)
+					var carriers: int = clampi(int(round(2.3 * prog * drone_bias)), 2, 6)
+					var apcs: int = clampi(int(round(6.0 * prog)), 5, 13)
 					var c_int: float = 1.52 if p < 0.32 else 1.15
 					groups.append({"type": E.CHOPPER, "count": choppers, "interval": c_int * pace, "delay": 0.0, "lane": 0})
-					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.4 * pace, "delay": 3.4 if p < 0.32 else 2.4, "lane": -1})
-					groups.append({"type": E.APC, "count": apcs, "interval": 0.90 * pace, "delay": 4.0 if p < 0.32 else 3.2, "lane": -1})
+					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.4 * pace if p < 0.32 else 2.7 * pace, "delay": 3.4 if p < 0.32 else 2.6, "lane": -1})
+					groups.append({"type": E.APC, "count": apcs, "interval": 0.88 * pace, "delay": 4.0 if p < 0.32 else 3.2, "lane": -1})
 					if p >= 0.36:
-						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.2 * prog * air_bias)), 3, 7), "interval": 1.55 * pace, "delay": 3.6, "lane": 0})
+						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.4 * prog * air_bias)), 3, 8), "interval": 1.68 * pace, "delay": 5.0, "lane": 0})
+					if p >= 0.48:
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.8 * prog)), 3, 9), "interval": 1.50 * pace, "delay": 2.0, "lane": -1})
 					if p >= 0.58:
-						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.5 * prog)), 3, 8), "interval": 1.50 * pace, "delay": 1.8, "lane": -1})
-					if p >= 0.74:
-						groups.append({"type": E.SKY_FORTRESS, "count": 2 if p >= 0.88 else 1, "interval": 4.8 * pace, "delay": 3.2, "lane": 0})
+						var skies1: int = 1 if p < 0.78 else 2
+						groups.append({"type": E.SKY_FORTRESS, "count": skies1, "interval": 5.2 * pace, "delay": 6.4, "lane": 0})
+					if p >= 0.68:
+						groups.append({"type": E.JUGGERNAUT, "count": 2 if p >= 0.84 else 1, "interval": 3.5 * pace, "delay": 1.2, "lane": -1})
 				2:
 					# APS Trophy Phalanx (rewards Dragonfire Laser & AP counter-play)
-					var aps: int = clampi(int(round(3.8 * prog * armor_bias)), 3, 9)
-					var tanks: int = clampi(int(round(6.5 * prog)), 5, 14)
-					var apcs: int = clampi(int(round(7.0 * prog)), 5, 13)
-					var aps_int: float = 1.80 if p < 0.35 else 1.58
+					var aps: int = clampi(int(round(3.8 * prog * armor_bias)), 3, 11)
+					var tanks: int = clampi(int(round(6.4 * prog)), 5, 15)
+					var apcs: int = clampi(int(round(6.4 * prog)), 5, 12)
+					var aps_int: float = 1.92 if p < 0.35 else 1.38
 					groups.append({"type": E.APS_TANK, "count": aps, "interval": aps_int * pace, "delay": 0.0, "lane": -1})
-					groups.append({"type": E.TANK, "count": tanks, "interval": 1.12 * pace, "delay": 2.0 if p < 0.35 else 1.5, "lane": -1})
-					groups.append({"type": E.APC, "count": apcs, "interval": 0.78 * pace, "delay": 3.4 if p < 0.35 else 2.8, "lane": -1})
+					groups.append({"type": E.TANK, "count": tanks, "interval": 1.08 * pace, "delay": 2.4 if p < 0.35 else 1.4, "lane": -1})
+					groups.append({"type": E.APC, "count": apcs, "interval": 0.78 * pace, "delay": 3.6 if p < 0.35 else 2.6, "lane": -1})
+					if p >= 0.42:
+						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.6 * prog * air_bias)), 3, 9), "interval": 1.50 * pace, "delay": 3.8, "lane": 0})
 					if p >= 0.48:
-						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.4 * prog * air_bias)), 3, 7), "interval": 1.55 * pace, "delay": 3.8, "lane": 0})
-					if p >= 0.62:
-						groups.append({"type": E.JUGGERNAUT, "count": 2 if p >= 0.80 else 1, "interval": 3.6 * pace, "delay": 1.0, "lane": -1})
+						var jugs2: int = 1 if p < 0.66 else (2 if p < 0.84 else 3)
+						groups.append({"type": E.JUGGERNAUT, "count": jugs2, "interval": 3.3 * pace, "delay": 1.0, "lane": -1})
 				3:
-					# High-Speed Blitz + Tactical Air Support (staggered air for short-air maps!)
-					var jeeps: int = clampi(int(round(13.0 * prog * blitz_bias)), 10, 24)
-					var apcs: int = clampi(int(round(7.0 * prog)), 5, 14)
-					var choppers: int = clampi(int(round(4.6 * prog * air_bias)), 4, 11)
-					var bombers: int = clampi(int(round(2.4 * prog * air_bias)), 2, 6)
+					# High-Speed Blitz -> Late-Game Combined-Arms Assault (no weak W18/W27 fodder waves!)
+					var jeeps: int = clampi(int(round(12.0 * prog * blitz_bias)), 10, 20)
+					var apcs: int = clampi(int(round(6.5 * prog)), 5, 12)
+					var choppers: int = clampi(int(round(4.6 * prog * air_bias)), 4, 12)
+					var bombers: int = clampi(int(round(2.6 * prog * air_bias)), 2, 8)
 					groups.append({"type": E.JEEP, "count": jeeps, "interval": 0.38 * pace, "delay": 0.0, "lane": -1})
-					groups.append({"type": E.APC, "count": apcs, "interval": 0.78 * pace, "delay": 2.6, "lane": -1})
-					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.32 * pace, "delay": 4.8, "lane": 0})
-					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.95 * pace, "delay": 6.8, "lane": 0})
-					if p >= 0.56:
-						groups.append({"type": E.TANK, "count": clampi(int(round(5.5 * prog)), 5, 11), "interval": 1.05 * pace, "delay": 3.8, "lane": -1})
+					groups.append({"type": E.APC, "count": apcs, "interval": 0.76 * pace, "delay": 2.6, "lane": -1})
+					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.35 * pace if p < 0.50 else 1.08 * pace, "delay": 4.8 if p < 0.50 else 3.8, "lane": 0})
+					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.95 * pace if p < 0.50 else 1.56 * pace, "delay": 6.8 if p < 0.50 else 5.6, "lane": 0})
+					if p >= 0.50:
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.6 * prog * armor_bias)), 3, 9), "interval": 1.52 * pace, "delay": 1.8, "lane": -1})
+						groups.append({"type": E.TANK, "count": clampi(int(round(5.2 * prog)), 5, 11), "interval": 1.08 * pace, "delay": 2.8, "lane": -1})
+					if p >= 0.62:
+						var jugs3: int = 1 if p < 0.78 else (2 if p < 0.92 else 3)
+						groups.append({"type": E.JUGGERNAUT, "count": jugs3, "interval": 3.6 * pace, "delay": 0.8, "lane": -1})
+					if p >= 0.70:
+						var skies3: int = 2 if p >= 0.88 else 1
+						groups.append({"type": E.SKY_FORTRESS, "count": skies3, "interval": 5.0 * pace, "delay": 4.8, "lane": 0})
 				4:
 					# Siege Breaker (Juggernaut flagship + Armored Escort)
-					var jugs: int = 1 if p < 0.42 else (2 if p < 0.68 else (3 if p < 0.86 else 4))
-					var tanks: int = clampi(int(round(6.5 * prog * armor_bias)), 5, 13)
-					var choppers: int = clampi(int(round(5.5 * prog * air_bias)), 4, 11)
+					var jugs: int = 1 if p < 0.44 else (2 if p < 0.64 else (3 if p < 0.82 else 4))
+					var tanks: int = clampi(int(round(6.0 * prog * armor_bias)), 5, 13)
+					var choppers: int = clampi(int(round(5.0 * prog * air_bias)), 4, 11)
 					groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 3.4 * pace, "delay": 0.0, "lane": -1})
-					groups.append({"type": E.TANK, "count": tanks, "interval": 1.05 * pace, "delay": 1.5, "lane": -1})
-					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 0.98 * pace, "delay": 3.6, "lane": 0})
+					groups.append({"type": E.TANK, "count": tanks, "interval": 1.08 * pace, "delay": 1.8, "lane": -1})
+					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.12 * pace, "delay": 4.6, "lane": 0})
 					if p >= 0.44:
-						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.6 * prog)), 3, 8), "interval": 1.55 * pace, "delay": 2.2, "lane": -1})
-					if p >= 0.65:
-						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.2 * prog * air_bias)), 3, 7), "interval": 1.55 * pace, "delay": 4.4, "lane": 0})
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.6 * prog)), 3, 9), "interval": 1.54 * pace, "delay": 2.4, "lane": -1})
+					if p >= 0.60:
+						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.2 * prog * air_bias)), 3, 8), "interval": 1.62 * pace, "delay": 5.2, "lane": 0})
+					if p >= 0.78:
+						groups.append({"type": E.SKY_FORTRESS, "count": 2 if p >= 0.90 else 1, "interval": 5.0 * pace, "delay": 5.0, "lane": 0})
 				5:
-					# Heavy Air Wing + Ground Pin (staggered bomber/tank arrival for short-air maps)
-					var choppers: int = clampi(int(round(5.2 * prog * air_bias)), 4, 12)
+					# Heavy Air Wing + Ground Pin
+					var choppers: int = clampi(int(round(4.8 * prog * air_bias)), 4, 12)
 					var bombers: int = clampi(int(round(3.2 * prog * air_bias)), 2, 8)
-					var tanks: int = clampi(int(round(5.5 * prog)), 4, 12)
-					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.12 * pace, "delay": 0.0, "lane": 0})
-					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.70 * pace, "delay": 2.8, "lane": 0})
-					groups.append({"type": E.TANK, "count": tanks, "interval": 1.10 * pace, "delay": 3.4, "lane": -1})
-					if p >= 0.50:
-						var skies: int = 1 if p < 0.78 else 2
-						groups.append({"type": E.SKY_FORTRESS, "count": skies, "interval": 4.8 * pace, "delay": 3.8, "lane": 0})
-					if p >= 0.66:
-						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.5 * prog)), 3, 7), "interval": 1.55 * pace, "delay": 2.0, "lane": -1})
+					var tanks: int = clampi(int(round(5.4 * prog)), 4, 12)
+					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.24 * pace if p < 0.48 else 1.04 * pace, "delay": 0.0, "lane": 0})
+					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.85 * pace if p < 0.48 else 1.56 * pace, "delay": 3.4 if p < 0.48 else 3.0, "lane": 0})
+					groups.append({"type": E.TANK, "count": tanks, "interval": 1.12 * pace, "delay": 3.6, "lane": -1})
+					if p >= 0.52:
+						var skies5: int = 1 if p < 0.74 else (2 if p < 0.88 else 3)
+						groups.append({"type": E.SKY_FORTRESS, "count": skies5, "interval": 5.0 * pace, "delay": 4.8, "lane": 0})
+					if p >= 0.60:
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.6 * prog)), 3, 8), "interval": 1.54 * pace, "delay": 2.2, "lane": -1})
+						groups.append({"type": E.UAV_CARRIER, "count": clampi(int(round(2.3 * prog * drone_bias)), 2, 5), "interval": 3.0 * pace, "delay": 3.4, "lane": -1})
+					if p >= 0.74:
+						groups.append({"type": E.JUGGERNAUT, "count": 2 if p >= 0.88 else 1, "interval": 3.5 * pace, "delay": 1.4, "lane": -1})
 				6:
 					# Combined-Arms Drone & APS Push
-					var carriers: int = clampi(int(round(3.0 * prog * drone_bias)), 2, 6)
-					var aps: int = clampi(int(round(4.2 * prog * armor_bias)), 3, 9)
-					var apcs: int = clampi(int(round(7.5 * prog)), 5, 13)
-					var choppers: int = clampi(int(round(5.5 * prog * air_bias)), 4, 11)
-					groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.55 * pace, "delay": 0.0, "lane": -1})
-					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 2.7 * pace, "delay": 1.6, "lane": -1})
-					groups.append({"type": E.APC, "count": apcs, "interval": 0.74 * pace, "delay": 2.4, "lane": -1})
-					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 0.98 * pace, "delay": 3.6, "lane": 0})
-					if p >= 0.64:
-						groups.append({"type": E.JUGGERNAUT, "count": 2 if p >= 0.82 else 1, "interval": 3.5 * pace, "delay": 0.8, "lane": -1})
+					var carriers: int = clampi(int(round(2.8 * prog * drone_bias)), 2, 6)
+					var aps: int = clampi(int(round(3.8 * prog * armor_bias)), 3, 10)
+					var apcs: int = clampi(int(round(6.6 * prog)), 5, 13)
+					var choppers: int = clampi(int(round(5.0 * prog * air_bias)), 4, 12)
+					groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.62 * pace, "delay": 0.0, "lane": -1})
+					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.0 * pace, "delay": 2.0, "lane": -1})
+					groups.append({"type": E.APC, "count": apcs, "interval": 0.80 * pace, "delay": 2.8, "lane": -1})
+					groups.append({"type": E.CHOPPER, "count": choppers, "interval": 1.12 * pace, "delay": 4.6, "lane": 0})
+					if p >= 0.56:
+						var jugs6: int = 1 if p < 0.72 else (2 if p < 0.86 else 3)
+						groups.append({"type": E.JUGGERNAUT, "count": jugs6, "interval": 3.5 * pace, "delay": 1.2, "lane": -1})
+						groups.append({"type": E.BOMBER, "count": clampi(int(round(3.2 * prog * air_bias)), 3, 8), "interval": 1.58 * pace, "delay": 4.8, "lane": 0})
 				7:
 					# Armored Juggernaut Division
-					var jugs: int = 1 if p < 0.45 else (2 if p < 0.68 else (3 if p < 0.86 else 4))
-					var aps: int = clampi(int(round(4.2 * prog * armor_bias)), 3, 9)
-					var tanks: int = clampi(int(round(7.2 * prog)), 5, 14)
-					var bombers: int = clampi(int(round(3.5 * prog * air_bias)), 3, 8)
-					groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 3.6 * pace, "delay": 0.0, "lane": -1})
-					groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.65 * pace, "delay": 2.2, "lane": -1})
-					groups.append({"type": E.TANK, "count": tanks, "interval": 1.06 * pace, "delay": 3.2, "lane": -1})
-					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.62 * pace, "delay": 4.8, "lane": 0})
-				_:
-					# Sky Fortress Sortie (high-altitude air boss + drone/armor support)
-					var skies: int = 1 if p < 0.70 else 2
-					var bombers: int = clampi(int(round(4.4 * prog * air_bias)), 3, 8)
-					var carriers: int = clampi(int(round(2.8 * prog * drone_bias)), 2, 5)
-					var tanks: int = clampi(int(round(6.8 * prog)), 5, 13)
-					groups.append({"type": E.SKY_FORTRESS, "count": skies, "interval": 4.6 * pace, "delay": 0.0, "lane": 0})
-					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.45 * pace, "delay": 2.0, "lane": 0})
-					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 2.8 * pace, "delay": 2.6, "lane": -1})
-					groups.append({"type": E.TANK, "count": tanks, "interval": 1.00 * pace, "delay": 2.8, "lane": -1})
+					var jugs: int = 1 if p < 0.46 else (2 if p < 0.66 else (3 if p < 0.82 else 4))
+					var aps: int = clampi(int(round(4.2 * prog * armor_bias)), 3, 10)
+					var tanks: int = clampi(int(round(7.0 * prog)), 5, 14)
+					var bombers: int = clampi(int(round(3.4 * prog * air_bias)), 3, 8)
+					groups.append({"type": E.JUGGERNAUT, "count": jugs, "interval": 3.7 * pace, "delay": 0.0, "lane": -1})
+					groups.append({"type": E.APS_TANK, "count": aps, "interval": 1.70 * pace, "delay": 2.6, "lane": -1})
+					groups.append({"type": E.TANK, "count": tanks, "interval": 1.10 * pace, "delay": 3.8, "lane": -1})
+					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.72 * pace, "delay": 5.8, "lane": 0})
 					if p >= 0.70:
-						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.5 * prog)), 3, 7), "interval": 1.50 * pace, "delay": 1.8, "lane": -1})
+						groups.append({"type": E.SKY_FORTRESS, "count": 2 if p >= 0.86 else 1, "interval": 5.0 * pace, "delay": 4.8, "lane": 0})
+				_:
+					# Sky Fortress Sortie (high-altitude air boss + drone/armor support, staggered for short air paths)
+					var skies: int = 1 if p < 0.66 else (2 if p < 0.86 else 3)
+					var bombers: int = clampi(int(round(4.0 * prog * air_bias)), 3, 9)
+					var carriers: int = clampi(int(round(2.6 * prog * drone_bias)), 2, 5)
+					var tanks: int = clampi(int(round(6.6 * prog)), 5, 13)
+					groups.append({"type": E.SKY_FORTRESS, "count": skies, "interval": 5.2 * pace, "delay": 0.0, "lane": 0})
+					groups.append({"type": E.TANK, "count": tanks, "interval": 1.08 * pace, "delay": 2.4, "lane": -1})
+					groups.append({"type": E.UAV_CARRIER, "count": carriers, "interval": 3.2 * pace, "delay": 3.8, "lane": -1})
+					groups.append({"type": E.BOMBER, "count": bombers, "interval": 1.74 * pace, "delay": 5.0, "lane": 0})
+					if p >= 0.56:
+						groups.append({"type": E.APS_TANK, "count": clampi(int(round(3.8 * prog)), 3, 9), "interval": 1.50 * pace, "delay": 1.8, "lane": -1})
+					if p >= 0.70:
+						groups.append({"type": E.JUGGERNAUT, "count": 2 if p >= 0.86 else 1, "interval": 3.5 * pace, "delay": 1.0, "lane": -1})
 
 		out.append({
 			"title": title,
