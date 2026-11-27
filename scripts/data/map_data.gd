@@ -27,11 +27,24 @@ static func get_all_maps() -> Array[Dictionary]:
 	]
 
 static func get_map_by_id(map_id: String) -> Dictionary:
-	if map_id == "north_pole":
-		return get_north_pole()
-	for m in get_all_maps():
-		if String(m["id"]) == map_id:
-			return m
+	match map_id:
+		"iron_valley": return get_iron_valley()
+		"scorched_wadi": return get_scorched_wadi()
+		"frostline_pass": return get_frostline_pass()
+		"granite_gorge": return get_granite_gorge()
+		"ironbourne": return get_ironbourne()
+		"cotswold_vale": return get_cotswold_vale()
+		"whisperwood": return get_whisperwood()
+		"red_centre": return get_red_centre()
+		"coral_atoll": return get_coral_atoll()
+		"obsidian_caldera": return get_obsidian_caldera()
+		"bayou_delta": return get_bayou_delta()
+		"neon_tokyo": return get_neon_tokyo()
+		"tranquility_crater": return get_tranquility_crater()
+		"olympus_rift": return get_olympus_rift()
+		"europa_abyss": return get_europa_abyss()
+		"xenon_prime": return get_xenon_prime()
+		"north_pole": return get_north_pole()
 	return get_iron_valley()
 
 static func get_iron_valley() -> Dictionary:

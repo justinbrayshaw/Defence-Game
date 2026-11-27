@@ -3,6 +3,9 @@ extends Node2D
 
 const MASK_W: int = 200
 const MASK_H: int = 120
+const TERRAIN_SHADER: Shader = preload("res://shaders/terrain.gdshader")
+
+var _mask_cache: Dictionary = {} # map_id -> ImageTexture
 
 var map_data: Dictionary = {}
 var occupied_pads: Dictionary = {} # pad_index -> Turret
@@ -86,49 +89,173 @@ func _bridge_local(p: Vector2, b: Dictionary) -> Vector2:
 	return Vector2(rel.dot(d), rel.dot(perp))
 
 func _bake_map_mask() -> void:
-	var img: Image = Image.create_empty(MASK_W, MASK_H, false, Image.FORMAT_RGBA8)
+	var map_id: String = String(map_data.get("id", ""))
+	if map_id != "" and _mask_cache.has(map_id):
+		_mask_tex = _mask_cache[map_id]
+		return
+
 	var mw: float = float(map_data["width"])
 	var mh: float = float(map_data["height"])
+	var cell_w: float = mw / float(MASK_W)
+	var cell_h: float = mh / float(MASK_H)
+	var inv_cw: float = 1.0 / cell_w
+	var inv_ch: float = 1.0 / cell_h
 	var roads: Array = map_data["ground_coarses"]
 	var river: PackedVector2Array = map_data["river_points"]
 	var has_river: bool = river.size() >= 2
 	var pads: Array = map_data["pads"]
 	var base_pos: Vector2 = map_data["base_pos"]
 
+	var total_px: int = MASK_W * MASK_H
+	var road_d2 := PackedFloat32Array()
+	road_d2.resize(total_px)
+	road_d2.fill(16384.0) # 128^2
+
+	var river_d2 := PackedFloat32Array()
+	river_d2.resize(total_px)
+	river_d2.fill(19600.0) # 140^2
+
+	var river_sun := PackedFloat32Array()
+	river_sun.resize(total_px)
+	river_sun.fill(0.0)
+
+	var pad_d2 := PackedFloat32Array()
+	pad_d2.resize(total_px)
+	pad_d2.fill(9216.0) # 96^2
+
+	# Pass 1: Stamp road segments only within their 128px AABB
+	const ROAD_MAX_R: float = 128.0
+	for poly_var in roads:
+		var poly: PackedVector2Array = poly_var
+		var p_cnt: int = poly.size()
+		for si in range(p_cnt - 1):
+			var a: Vector2 = poly[si]
+			var b: Vector2 = poly[si + 1]
+			var ax: float = a.x
+			var ay: float = a.y
+			var abx: float = b.x - ax
+			var aby: float = b.y - ay
+			var len_sq: float = abx * abx + aby * aby
+			var inv_lsq: float = (1.0 / len_sq) if len_sq > 0.0001 else 0.0
+
+			var x0: int = maxi(0, int(floor((minf(ax, b.x) - ROAD_MAX_R) * inv_cw)))
+			var x1: int = mini(MASK_W - 1, int(ceil((maxf(ax, b.x) + ROAD_MAX_R) * inv_cw)))
+			var y0: int = maxi(0, int(floor((minf(ay, b.y) - ROAD_MAX_R) * inv_ch)))
+			var y1: int = mini(MASK_H - 1, int(ceil((maxf(ay, b.y) + ROAD_MAX_R) * inv_ch)))
+
+			for y in range(y0, y1 + 1):
+				var wy: float = (float(y) + 0.5) * cell_h
+				var py: float = wy - ay
+				var row_off: int = y * MASK_W
+				for x in range(x0, x1 + 1):
+					var wx: float = (float(x) + 0.5) * cell_w
+					var px: float = wx - ax
+					var t: float = clampf((px * abx + py * aby) * inv_lsq, 0.0, 1.0)
+					var dx: float = px - abx * t
+					var dy: float = py - aby * t
+					var d2: float = dx * dx + dy * dy
+					var p_idx: int = row_off + x
+					if d2 < road_d2[p_idx]:
+						road_d2[p_idx] = d2
+
+	# Pass 2: Stamp river segments (distance + sun-side projection in a single pass!)
+	if has_river:
+		const RIV_MAX_R: float = 140.0
+		var r_cnt: int = river.size()
+		for si in range(r_cnt - 1):
+			var a: Vector2 = river[si]
+			var b: Vector2 = river[si + 1]
+			var ax: float = a.x
+			var ay: float = a.y
+			var abx: float = b.x - ax
+			var aby: float = b.y - ay
+			var len_sq: float = abx * abx + aby * aby
+			var inv_lsq: float = (1.0 / len_sq) if len_sq > 0.0001 else 0.0
+
+			var x0: int = maxi(0, int(floor((minf(ax, b.x) - RIV_MAX_R) * inv_cw)))
+			var x1: int = mini(MASK_W - 1, int(ceil((maxf(ax, b.x) + RIV_MAX_R) * inv_cw)))
+			var y0: int = maxi(0, int(floor((minf(ay, b.y) - RIV_MAX_R) * inv_ch)))
+			var y1: int = mini(MASK_H - 1, int(ceil((maxf(ay, b.y) + RIV_MAX_R) * inv_ch)))
+
+			for y in range(y0, y1 + 1):
+				var wy: float = (float(y) + 0.5) * cell_h
+				var py: float = wy - ay
+				var row_off: int = y * MASK_W
+				for x in range(x0, x1 + 1):
+					var wx: float = (float(x) + 0.5) * cell_w
+					var px: float = wx - ax
+					var t: float = clampf((px * abx + py * aby) * inv_lsq, 0.0, 1.0)
+					var dx: float = px - abx * t
+					var dy: float = py - aby * t
+					var d2: float = dx * dx + dy * dy
+					var p_idx: int = row_off + x
+					if d2 < river_d2[p_idx]:
+						river_d2[p_idx] = d2
+						river_sun[p_idx] = dx * 0.76 + dy * 0.65
+
+	# Pass 3: Stamp HQ base (scaled by 0.55 -> effective radius 175px) & turret pads (96px)
+	const BASE_MAX_R: float = 175.0
+	var bx0: int = maxi(0, int(floor((base_pos.x - BASE_MAX_R) * inv_cw)))
+	var bx1: int = mini(MASK_W - 1, int(ceil((base_pos.x + BASE_MAX_R) * inv_cw)))
+	var by0: int = maxi(0, int(floor((base_pos.y - BASE_MAX_R) * inv_ch)))
+	var by1: int = mini(MASK_H - 1, int(ceil((base_pos.y + BASE_MAX_R) * inv_ch)))
+	for y in range(by0, by1 + 1):
+		var dy: float = (float(y) + 0.5) * cell_h - base_pos.y
+		var dy2: float = dy * dy
+		var row_off: int = y * MASK_W
+		for x in range(bx0, bx1 + 1):
+			var dx: float = (float(x) + 0.5) * cell_w - base_pos.x
+			var d2: float = (dx * dx + dy2) * 0.3025 # 0.55^2
+			var p_idx: int = row_off + x
+			if d2 < pad_d2[p_idx]:
+				pad_d2[p_idx] = d2
+
+	const PAD_MAX_R: float = 96.0
+	for pad_pos in pads:
+		var pc: Vector2 = pad_pos
+		var px0: int = maxi(0, int(floor((pc.x - PAD_MAX_R) * inv_cw)))
+		var px1: int = mini(MASK_W - 1, int(ceil((pc.x + PAD_MAX_R) * inv_cw)))
+		var py0: int = maxi(0, int(floor((pc.y - PAD_MAX_R) * inv_ch)))
+		var py1: int = mini(MASK_H - 1, int(ceil((pc.y + PAD_MAX_R) * inv_ch)))
+		for y in range(py0, py1 + 1):
+			var dy: float = (float(y) + 0.5) * cell_h - pc.y
+			var dy2: float = dy * dy
+			var row_off: int = y * MASK_W
+			for x in range(px0, px1 + 1):
+				var dx: float = (float(x) + 0.5) * cell_w - pc.x
+				var d2: float = dx * dx + dy2
+				var p_idx: int = row_off + x
+				if d2 < pad_d2[p_idx]:
+					pad_d2[p_idx] = d2
+
+	# Pack final RGBA8 bytes
 	var bytes := PackedByteArray()
-	bytes.resize(MASK_W * MASK_H * 4)
+	bytes.resize(total_px * 4)
+	var b_idx: int = 0
+	const INV_ROAD_SCALE: float = 255.0 / 128.0
+	const INV_RIV_SCALE: float = 255.0 / 140.0
+	const INV_PAD_SCALE: float = 255.0 / 96.0
+	for p_idx in range(total_px):
+		var rd2: float = road_d2[p_idx]
+		var r_byte: int = 255 if rd2 >= 16384.0 else int(sqrt(rd2) * INV_ROAD_SCALE + 0.5)
+		var gd2: float = river_d2[p_idx]
+		var g_byte: int = 255 if gd2 >= 19600.0 else int(sqrt(gd2) * INV_RIV_SCALE + 0.5)
+		var bd2: float = pad_d2[p_idx]
+		var b_byte: int = 255 if bd2 >= 9216.0 else int(sqrt(bd2) * INV_PAD_SCALE + 0.5)
+		var a_byte: int = 128
+		if has_river and gd2 < 19600.0:
+			var a_norm: float = 0.5 + clampf(river_sun[p_idx] / 120.0, -0.5, 0.5)
+			a_byte = clampi(int(a_norm * 255.0 + 0.5), 0, 255)
+		bytes[b_idx] = r_byte
+		bytes[b_idx + 1] = g_byte
+		bytes[b_idx + 2] = b_byte
+		bytes[b_idx + 3] = a_byte
+		b_idx += 4
 
-	var idx: int = 0
-	for y in range(MASK_H):
-		var wy: float = (float(y) + 0.5) / float(MASK_H) * mh
-		for x in range(MASK_W):
-			var wx: float = (float(x) + 0.5) / float(MASK_W) * mw
-			var p := Vector2(wx, wy)
-
-			var d_road: float = MapData.distance_to_polylines(p, roads)
-			var d_river: float = MapData.distance_to_polyline(p, river) if has_river else 999.0
-			var dx_river: float = MapData.signed_sun_to_river(p, river) if has_river else 0.0
-
-			var d_pad: float = p.distance_to(base_pos) * 0.55
-			for pad_pos in pads:
-				var dp: float = p.distance_to(pad_pos)
-				if dp < d_pad:
-					d_pad = dp
-
-			var r_byte: int = clampi(int(round(clampf(d_road / 128.0, 0.0, 1.0) * 255.0)), 0, 255)
-			var g_byte: int = clampi(int(round(clampf(d_river / 140.0, 0.0, 1.0) * 255.0)), 0, 255)
-			var b_byte: int = clampi(int(round(clampf(d_pad / 96.0, 0.0, 1.0) * 255.0)), 0, 255)
-			var a_norm: float = 0.5 + clampf(dx_river / 120.0, -0.5, 0.5)
-			var a_byte: int = clampi(int(round(a_norm * 255.0)), 0, 255)
-
-			bytes[idx] = r_byte
-			bytes[idx + 1] = g_byte
-			bytes[idx + 2] = b_byte
-			bytes[idx + 3] = a_byte
-			idx += 4
-
-	img.set_data(MASK_W, MASK_H, false, Image.FORMAT_RGBA8, bytes)
+	var img: Image = Image.create_from_data(MASK_W, MASK_H, false, Image.FORMAT_RGBA8, bytes)
 	_mask_tex = ImageTexture.create_from_image(img)
+	if map_id != "":
+		_mask_cache[map_id] = _mask_tex
 
 func _pack_bridge_vec4(bridges: Array[Dictionary], index: int) -> Vector4:
 	if index < bridges.size():
@@ -139,28 +266,30 @@ func _pack_bridge_vec4(bridges: Array[Dictionary], index: int) -> Vector4:
 	return Vector4(-9999.0, -9999.0, 1.0, 0.0)
 
 func _setup_shader_background() -> void:
-	if _bg_rect != null and is_instance_valid(_bg_rect):
-		_bg_rect.queue_free()
-	_bg_rect = ColorRect.new()
-	_bg_rect.position = Vector2.ZERO
-	_bg_rect.size = Vector2(float(map_data["width"]), float(map_data["height"]))
-	_bg_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_bg_rect.z_index = -5
-	var shader: Shader = load("res://shaders/terrain.gdshader")
-	if shader != null:
-		var mat := ShaderMaterial.new()
-		mat.shader = shader
+	var target_size := Vector2(float(map_data["width"]), float(map_data["height"]))
+	if _bg_rect == null or not is_instance_valid(_bg_rect):
+		_bg_rect = ColorRect.new()
+		_bg_rect.position = Vector2.ZERO
+		_bg_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_bg_rect.z_index = -5
+		if TERRAIN_SHADER != null:
+			var mat := ShaderMaterial.new()
+			mat.shader = TERRAIN_SHADER
+			_bg_rect.material = mat
+		add_child(_bg_rect)
+
+	_bg_rect.size = target_size
+	var smat: ShaderMaterial = _bg_rect.material as ShaderMaterial
+	if smat != null:
 		var bridges: Array[Dictionary] = _get_bridges()
-		mat.set_shader_parameter("map_mask", _mask_tex)
-		mat.set_shader_parameter("map_size", _bg_rect.size)
-		mat.set_shader_parameter("bridge_1", _pack_bridge_vec4(bridges, 0))
-		mat.set_shader_parameter("bridge_2", _pack_bridge_vec4(bridges, 1))
-		mat.set_shader_parameter("bridge_3", _pack_bridge_vec4(bridges, 2))
-		mat.set_shader_parameter("biome_type", int(map_data.get("biome_id", 0)))
-		_bg_rect.material = mat
+		smat.set_shader_parameter("map_mask", _mask_tex)
+		smat.set_shader_parameter("map_size", target_size)
+		smat.set_shader_parameter("bridge_1", _pack_bridge_vec4(bridges, 0))
+		smat.set_shader_parameter("bridge_2", _pack_bridge_vec4(bridges, 1))
+		smat.set_shader_parameter("bridge_3", _pack_bridge_vec4(bridges, 2))
+		smat.set_shader_parameter("biome_type", int(map_data.get("biome_id", 0)))
 	else:
 		_bg_rect.color = Color(0.66, 0.72, 0.78) if _is_tundra else (Color(0.45, 0.36, 0.24) if _is_desert else Color(0.22, 0.25, 0.18))
-	add_child(_bg_rect)
 
 func _build_foliage_poly(radius: float, lobes: int, rng: RandomNumberGenerator, jag: float) -> PackedVector2Array:
 	var verts := PackedVector2Array()
