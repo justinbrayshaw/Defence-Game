@@ -16,11 +16,13 @@ var diff_cfg: Dictionary = {}
 var game_started: bool = false
 var game_over: bool = false
 var paused: bool = false
+var pause_menu_open: bool = false
 var game_speed: float = 1.0
 var cash: int = 280
 var lives: int = 20
 var max_lives: int = 20
 var total_kills: int = 0
+var _play_time_accum: float = 0.0
 
 # Wave state
 var current_wave_index: int = -1 # -1 before Wave 1
@@ -56,18 +58,25 @@ var _enemies_node: Node2D
 var _projectiles_node: Node2D
 var _fx: FxManager
 var _sfx: SfxManager
+var _music: MusicManager
+var _save: SaveManager
 var _hud: GameHud
 
 func _ready() -> void:
 	map_data = MapData.get_iron_valley()
 	waves = WaveData.get_waves_for_map(String(map_data["id"]))
 	diff_cfg = WaveData.get_difficulty_config(difficulty)
+	_save = SaveManager.new()
 
 	_build_scene_tree()
 	_connect_hud()
+	_apply_saved_audio_settings()
+	_hud.set_sector_records(_save.get_all_sector_records())
+	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	_reset_camera()
 	_hud.show_menu()
+	_music.set_mode(MusicManager.Mode.MENU)
 	_refresh_hud()
 
 func _on_viewport_resized() -> void:
@@ -118,6 +127,9 @@ func _build_scene_tree() -> void:
 	_sfx = SfxManager.new()
 	add_child(_sfx)
 
+	_music = MusicManager.new()
+	add_child(_music)
+
 	_hud = GameHud.new()
 	add_child(_hud)
 
@@ -131,8 +143,13 @@ func _connect_hud() -> void:
 	_hud.next_wave_requested.connect(_on_next_wave_requested)
 	_hud.speed_changed.connect(_on_speed_changed)
 	_hud.pause_toggled.connect(_on_pause_toggled)
+	_hud.pause_menu_requested.connect(_on_pause_menu_requested)
+	_hud.pause_menu_resumed.connect(_on_pause_menu_resumed)
 	_hud.mute_toggled.connect(_on_mute_toggled)
+	_hud.audio_settings_changed.connect(_on_audio_settings_changed)
+	_hud.reset_save_requested.connect(_on_reset_save_requested)
 	_hud.restart_requested.connect(_on_restart_requested)
+	_hud.replay_sector_requested.connect(_on_replay_sector_requested)
 	_hud.upgrade_requested.connect(_on_upgrade_selected)
 	_hud.target_mode_requested.connect(_on_cycle_target_mode)
 	_hud.sell_requested.connect(_on_sell_selected)
@@ -216,7 +233,7 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 	var target_map_id: String = map_id
 	var intercepted_banner: String = ""
 
-	# During active seasonal windows (e.g. Nov 20 – Jan 6 for Christmas), ~20% chance of
+	# During active seasonal windows (e.g. Nov 20 – Jan 6 for Christmas), ~5% chance of
 	# intercepting a secret seasonal distress signal instead of the chosen regular sector!
 	if allow_seasonal_intercept and target_map_id != "north_pole":
 		var season := SeasonalData.get_active_seasonal_event()
@@ -241,9 +258,13 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 	game_started = true
 	game_over = false
 	paused = false
+	pause_menu_open = false
 	game_speed = 1.0
 	Engine.time_scale = 1.0
 	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
+	_hud.hide_pause_menu()
+	_music.set_paused_duck(false)
+	_music.set_mode(MusicManager.Mode.FESTIVE if _is_festive_map() else MusicManager.Mode.COMBAT)
 
 	if _is_festive_map():
 		_sfx.play("festive_chime", -1.0, 0.0, 0.0)
@@ -254,15 +275,25 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 		_hud.show_wave_banner("%s  •  PRESS [N] TO LAUNCH WAVE 1" % String(map_data["name"]))
 	_refresh_hud()
 
+func _on_replay_sector_requested() -> void:
+	_sfx.play("ui_click")
+	_on_start_game(String(map_data["id"]), difficulty, false)
+
 func _on_restart_requested() -> void:
+	_flush_play_time()
 	_sfx.play("ui_click")
 	_clear_battlefield()
 	game_started = false
 	game_over = false
 	paused = false
+	pause_menu_open = false
 	game_speed = 1.0
 	Engine.time_scale = 1.0
 	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
+	_music.set_paused_duck(false)
+	_music.set_mode(MusicManager.Mode.MENU)
+	_hud.set_sector_records(_save.get_all_sector_records())
+	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
 	_hud.show_menu()
 	_refresh_hud()
 
@@ -273,6 +304,11 @@ func _process(delta: float) -> void:
 
 	if not game_started or game_over or paused:
 		return
+
+	# Track real duty time for career medals (flushed every 5s)
+	_play_time_accum += real_delta
+	if _play_time_accum >= 5.0:
+		_flush_play_time()
 
 	# Ability cooldown
 	if airstrike_cd > 0.0:
@@ -309,14 +345,15 @@ func _process(delta: float) -> void:
 
 func _update_camera(real_delta: float) -> void:
 	var move := Vector2.ZERO
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
-		move.y -= 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
-		move.y += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		move.x -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		move.x += 1.0
+	if game_started and not game_over and not pause_menu_open:
+		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+			move.y -= 1.0
+		if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+			move.y += 1.0
+		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+			move.x -= 1.0
+		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+			move.x += 1.0
 	if move.length_squared() > 0.0:
 		_cam_target_pos += move.normalized() * (560.0 / _cam_target_zoom) * real_delta
 
@@ -438,6 +475,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not game_started:
 		if event is InputEventKey and event.pressed and not event.echo:
 			var kc: Key = event.keycode
+			if kc == KEY_ESCAPE:
+				if _hud.is_medals_hall_visible():
+					_hud.hide_medals_hall()
+					return
+				if _hud.is_audio_overlay_visible():
+					_hud.hide_audio_overlay()
+					return
+			if _hud.is_medals_hall_visible() or _hud.is_audio_overlay_visible():
+				return
 			if kc >= KEY_A and kc <= KEY_Z:
 				var ch: String = char(int(kc))
 				_secret_code_buf = (_secret_code_buf + ch).right(12)
@@ -447,6 +493,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					_on_secret_sector_requested(matched_map)
 		return
 	if game_over:
+		return
+
+	if pause_menu_open:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+			if _hud.is_medals_hall_visible():
+				_hud.hide_medals_hall()
+			else:
+				_close_pause_menu()
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -475,7 +529,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_BACKSPACE, KEY_DELETE:
 				_on_sell_selected()
 			KEY_ESCAPE:
-				_cancel_modes()
+				if _has_active_mode():
+					_cancel_modes()
+				else:
+					_open_pause_menu()
 
 	elif event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event
@@ -503,6 +560,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_pan_dragged = true
 			_cam_target_pos -= delta_screen / _camera.zoom.x
 			_clamp_camera_target()
+
+func _has_active_mode() -> bool:
+	return placing_type != null or airstrike_aiming or drone_assign_aiming or (selected_turret != null and is_instance_valid(selected_turret))
 
 func _cancel_modes() -> void:
 	placing_type = null
@@ -577,6 +637,14 @@ func _try_place_turret(t_type: TurretData.TurretType, pad_idx: int) -> void:
 	_fx.spawn_spark_hit(pad_pos, cfg["accent"], 8)
 	_fx.spawn_floating_text(pad_pos + Vector2(0, -18), "-$%d" % cost, Color(0.96, 0.78, 0.34))
 
+	var st: Dictionary = _save.get_stats()
+	st["turrets_placed"] = int(st.get("turrets_placed", 0)) + 1
+	if t_type == TurretData.TurretType.CRYO:
+		st["cryo_builds_upgrades"] = int(st.get("cryo_builds_upgrades", 0)) + 1
+	if not bool(st.get("all_seven_turrets_achieved", false)) and _has_all_seven_turret_types():
+		st["all_seven_turrets_achieved"] = true
+	_check_medals()
+
 	# Keep placement active if Shift held and still affordable, else select newly built turret
 	if not Input.is_key_pressed(KEY_SHIFT) or cash < cost:
 		placing_type = null
@@ -645,6 +713,10 @@ func _trigger_airstrike(target_pos: Vector2) -> void:
 	_sfx.play("airstrike_jet", 1.5, 0.03, 0.0)
 	_fx.spawn_floating_text(target_pos + Vector2(0, -28), "HELLFIRE INBOUND!", Color(1.0, 0.45, 0.22))
 
+	var st: Dictionary = _save.get_stats()
+	st["airstrikes_called"] = int(st.get("airstrikes_called", 0)) + 1
+	_check_medals()
+
 	# Schedule 5 staggered carpet bombs along the flight vector
 	for i in range(5):
 		var offset_along := lerpf(-84.0, 84.0, float(i) / 4.0)
@@ -697,6 +769,9 @@ func _launch_next_wave(early_call: bool) -> void:
 		if early_bonus > 0:
 			cash += early_bonus
 			_fx.spawn_floating_text(map_data["base_pos"] + Vector2(-40, -50), "EARLY +$%d" % early_bonus, Color(0.40, 0.95, 0.52))
+			var st: Dictionary = _save.get_stats()
+			st["early_waves_called"] = int(st.get("early_waves_called", 0)) + 1
+			_check_medals()
 
 	current_wave_index += 1
 	waiting_for_next_wave = false
@@ -829,11 +904,30 @@ func _on_enemy_spawn_sub_unit(sub_type: EnemyData.EnemyType, from_pos: Vector2) 
 func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 	cash += enemy.reward
 	total_kills += 1
+	var killer_id: String = ""
 	if killer_turret != null and is_instance_valid(killer_turret) and killer_turret is Turret:
-		(killer_turret as Turret).register_kill()
+		var kt := killer_turret as Turret
+		kt.register_kill()
+		killer_id = String(kt.config.get("id", ""))
 
 	var is_boss := (enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy.enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
 	var is_heavy := is_boss or (enemy.enemy_type == EnemyData.EnemyType.TANK or enemy.enemy_type == EnemyData.EnemyType.APS_TANK or enemy.enemy_type == EnemyData.EnemyType.BOMBER)
+
+	# Career stat tracking for Decorations
+	var st: Dictionary = _save.get_stats()
+	st["total_kills"] = int(st.get("total_kills", 0)) + 1
+	if enemy.is_air:
+		st["air_kills"] = int(st.get("air_kills", 0)) + 1
+	if is_boss:
+		st["boss_kills"] = int(st.get("boss_kills", 0)) + 1
+	if enemy.enemy_type == EnemyData.EnemyType.APS_TANK:
+		st["aps_kills"] = int(st.get("aps_kills", 0)) + 1
+	elif enemy.enemy_type == EnemyData.EnemyType.FPV_DRONE:
+		st["fpv_kills"] = int(st.get("fpv_kills", 0)) + 1
+	if killer_id != "" and st.has("turret_kills"):
+		var tk: Dictionary = st["turret_kills"]
+		tk[killer_id] = int(tk.get(killer_id, 0)) + 1
+	_check_medals()
 	var blast_r := 56.0 if is_boss else (36.0 if is_heavy else (18.0 if enemy.enemy_type == EnemyData.EnemyType.FPV_DRONE else 24.0))
 	if _is_festive_map():
 		_fx.spawn_festive_pop(enemy.position, blast_r)
@@ -879,18 +973,54 @@ func _count_alive_enemies() -> int:
 			count += 1
 	return count
 
+func _get_total_turrets_sell_value() -> int:
+	var total := 0
+	for c in _turrets_node.get_children():
+		if c is Turret and is_instance_valid(c):
+			total += (c as Turret).get_sell_value()
+	return total
+
 func _trigger_end_game(victory: bool) -> void:
 	game_over = true
 	paused = false
+	pause_menu_open = false
 	Engine.time_scale = 1.0
 	_sim_world.process_mode = Node.PROCESS_MODE_DISABLED
+	_music.set_paused_duck(false)
+	_music.set_mode(MusicManager.Mode.SILENT)
 	placing_type = null
 	airstrike_aiming = false
 	drone_assign_aiming = false
 	_select_turret(null)
+
+	var turrets_val: int = _get_total_turrets_sell_value()
 	var cleared := waves.size() if victory else maxi(0, current_wave_index)
 	var secret_evt: Dictionary = {} if bool(map_data.get("is_secret", false)) else SeasonalData.get_active_seasonal_event()
-	_hud.show_end_screen(victory, String(map_data["name"]), cleared, waves.size(), total_kills, String(diff_cfg["name"]), _get_next_sector_id() != "", secret_evt)
+
+	_flush_play_time()
+	var st: Dictionary = _save.get_stats()
+
+	if victory:
+		var eval_res := RankData.evaluate_victory(cash, turrets_val, lives, max_lives, map_data, waves, diff_cfg, INTER_WAVE_TIME)
+		if lives == max_lives:
+			st["perfect_hq_wins"] = int(st.get("perfect_hq_wins", 0)) + 1
+		if lives <= 3:
+			st["close_call_wins"] = int(st.get("close_call_wins", 0)) + 1
+		if cash >= 1000:
+			st["rich_bank_wins"] = int(st.get("rich_bank_wins", 0)) + 1
+		st["best_rank_ever"] = maxi(int(st.get("best_rank_ever", 0)), int(eval_res.get("rank_num", 0)))
+		var is_new_best: bool = _save.record_sector_victory(String(map_data["id"]), int(difficulty), eval_res)
+		_check_medals()
+		_hud.set_sector_records(_save.get_all_sector_records())
+		_music.play_victory_stinger()
+		_hud.show_end_screen(true, String(map_data["name"]), cleared, waves.size(), total_kills, String(diff_cfg["name"]), _get_next_sector_id() != "", eval_res, is_new_best, {})
+	else:
+		st["defeats"] = int(st.get("defeats", 0)) + 1
+		_save.save()
+		_check_medals()
+		var eval_res := RankData.evaluate_defeat(cleared, waves.size(), cash, turrets_val)
+		_music.play_defeat_stinger()
+		_hud.show_end_screen(false, String(map_data["name"]), cleared, waves.size(), total_kills, String(diff_cfg["name"]), false, eval_res, false, secret_evt)
 
 func _on_upgrade_selected() -> void:
 	if selected_turret == null or not is_instance_valid(selected_turret):
@@ -905,6 +1035,12 @@ func _on_upgrade_selected() -> void:
 	selected_turret.apply_upgrade()
 	_sfx.play("upgrade")
 	_fx.spawn_floating_text(selected_turret.position + Vector2(0, -22), "LV %d!" % (selected_turret.level + 1), Color(0.42, 0.96, 0.56))
+	var st: Dictionary = _save.get_stats()
+	if selected_turret.turret_type == TurretData.TurretType.CRYO:
+		st["cryo_builds_upgrades"] = int(st.get("cryo_builds_upgrades", 0)) + 1
+	if not selected_turret.can_upgrade():
+		st["max_level_upgrades"] = int(st.get("max_level_upgrades", 0)) + 1
+	_check_medals()
 	_refresh_hud()
 
 func _on_cycle_target_mode() -> void:
@@ -933,43 +1069,143 @@ func _on_sell_selected() -> void:
 	selected_turret = null
 	_sfx.play("sell")
 	_fx.spawn_floating_text(pos + Vector2(0, -16), "+$%d" % refund, Color(0.98, 0.84, 0.36))
+	var st: Dictionary = _save.get_stats()
+	st["turrets_sold"] = int(st.get("turrets_sold", 0)) + 1
+	_check_medals()
 	_refresh_hud()
 
 func _on_speed_changed(spd: float) -> void:
+	if pause_menu_open:
+		return
 	_sfx.play("ui_click")
 	paused = false
 	game_speed = spd
 	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
 	Engine.time_scale = game_speed
+	_music.set_paused_duck(false)
 	_refresh_hud()
 
 func _on_pause_toggled() -> void:
-	if not game_started or game_over:
+	if not game_started or game_over or pause_menu_open:
 		return
 	_sfx.play("ui_click")
 	paused = not paused
 	if paused:
 		Engine.time_scale = 1.0
 		_sim_world.process_mode = Node.PROCESS_MODE_DISABLED
+		_music.set_paused_duck(true)
 	else:
 		_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
 		Engine.time_scale = game_speed
+		_music.set_paused_duck(false)
+	_refresh_hud()
+
+func _open_pause_menu() -> void:
+	if not game_started or game_over:
+		return
+	_flush_play_time()
+	_sfx.play("ui_click")
+	pause_menu_open = true
+	paused = true
+	_panning = false
+	Engine.time_scale = 1.0
+	_sim_world.process_mode = Node.PROCESS_MODE_DISABLED
+	_music.set_paused_duck(true)
+	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
+	_hud.show_pause_menu(String(map_data["name"]), String(diff_cfg["name"]))
+	_refresh_hud()
+
+func _close_pause_menu() -> void:
+	if not pause_menu_open:
+		return
+	_sfx.play("ui_click")
+	pause_menu_open = false
+	paused = false
+	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
+	Engine.time_scale = game_speed
+	_music.set_paused_duck(false)
+	_hud.hide_pause_menu()
+	_refresh_hud()
+
+func _on_pause_menu_requested() -> void:
+	if not game_started or game_over:
+		return
+	if pause_menu_open:
+		_close_pause_menu()
+	else:
+		_open_pause_menu()
+
+func _on_pause_menu_resumed() -> void:
+	_close_pause_menu()
+
+func _apply_saved_audio_settings() -> void:
+	var a := _save.get_audio_settings()
+	var m_muted: bool = bool(a["master_muted"])
+	var s_vol: float = float(a["sfx_volume"])
+	var s_muted: bool = bool(a["sfx_muted"])
+	var mu_vol: float = float(a["music_volume"])
+	var mu_muted: bool = bool(a["music_muted"])
+	_sfx.set_audio_state(s_vol, s_muted, m_muted)
+	_music.set_audio_state(mu_vol, mu_muted, m_muted)
+	_hud.set_audio_state(m_muted, s_vol, s_muted, mu_vol, mu_muted)
+
+func _on_audio_settings_changed(master_muted: bool, sfx_vol: float, sfx_muted: bool, music_vol: float, music_muted: bool) -> void:
+	_save.set_audio_settings(master_muted, sfx_vol, sfx_muted, music_vol, music_muted)
+	_sfx.set_audio_state(sfx_vol, sfx_muted, master_muted)
+	_music.set_audio_state(music_vol, music_muted, master_muted)
 	_refresh_hud()
 
 func _on_mute_toggled() -> void:
-	_sfx.set_muted(not _sfx.muted)
-	if not _sfx.muted:
+	var a := _save.get_audio_settings()
+	var next_master: bool = not bool(a["master_muted"])
+	_save.set_audio_settings(next_master, float(a["sfx_volume"]), bool(a["sfx_muted"]), float(a["music_volume"]), bool(a["music_muted"]))
+	_apply_saved_audio_settings()
+	if not next_master:
 		_sfx.play("ui_click")
 	_refresh_hud()
+
+func _on_reset_save_requested() -> void:
+	_sfx.play("ui_click")
+	_save.reset_campaign_progress()
+	_hud.set_sector_records(_save.get_all_sector_records())
+	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
+
+func _has_all_seven_turret_types() -> bool:
+	var seen: Dictionary = {}
+	for c in _turrets_node.get_children():
+		if c is Turret and is_instance_valid(c):
+			seen[int((c as Turret).turret_type)] = true
+	return seen.size() >= TurretData.get_all_types().size()
+
+func _flush_play_time() -> void:
+	if _play_time_accum <= 0.0:
+		return
+	var st: Dictionary = _save.get_stats()
+	st["play_time_sec"] = float(st.get("play_time_sec", 0.0)) + _play_time_accum
+	_play_time_accum = 0.0
+	_save.save()
+	_check_medals()
+
+func _check_medals() -> void:
+	var newly := _save.evaluate_and_unlock_medals()
+	if not newly.is_empty():
+		_sfx.play("upgrade", 1.5, 0.02, 0.05)
+		_hud.queue_medal_toasts(newly)
+		_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
 
 func _refresh_hud() -> void:
 	if _hud == null:
 		return
 	var wave_display := maxi(0, current_wave_index + 1)
-	_hud.update_top_bar(String(map_data["short_name"]), cash, lives, max_lives, wave_display, waves.size(), diff_cfg, paused, game_speed, _sfx.muted)
+	_hud.update_top_bar(String(map_data["short_name"]), cash, lives, max_lives, wave_display, waves.size(), diff_cfg, paused, game_speed, _sfx.master_muted)
 
 	var all_launched := (current_wave_index >= waves.size() - 1)
 	var can_call := (not all_launched) and (waiting_for_next_wave or active_spawners.is_empty())
 	var early_bonus := _get_early_wave_bonus()
 	_hud.update_dock(cash, placing_type, airstrike_cd, AIRSTRIKE_COOLDOWN, airstrike_aiming, can_call, current_wave_index + 2, early_bonus, all_launched)
 	_hud.update_inspector(selected_turret, cash, drone_assign_aiming)
+
+	if game_started and not game_over and (current_wave_index + 1) < waves.size():
+		_hud.update_wave_preview(true, current_wave_index + 2, waves.size(), waves[current_wave_index + 1])
+	else:
+		_hud.update_wave_preview(false, 0, waves.size(), {})

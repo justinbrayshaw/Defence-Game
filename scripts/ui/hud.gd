@@ -10,8 +10,13 @@ signal airstrike_requested()
 signal next_wave_requested()
 signal speed_changed(speed_mult: float)
 signal pause_toggled()
+signal pause_menu_requested()
+signal pause_menu_resumed()
 signal mute_toggled()
+signal audio_settings_changed(master_muted: bool, sfx_volume: float, sfx_muted: bool, music_volume: float, music_muted: bool)
+signal reset_save_requested()
 signal restart_requested()
+signal replay_sector_requested()
 signal upgrade_requested()
 signal target_mode_requested()
 signal sell_requested()
@@ -63,8 +68,12 @@ var _menu_overlay: ColorRect
 var _menu_title: Label
 var _menu_sub: Label
 var _menu_brief: Label
+var _menu_record_label: Label
+var _menu_medals_btn: Button
+var _menu_reset_btn: Button
 var _selected_map_id: String = "iron_valley"
 var _all_maps: Array[Dictionary] = []
+var _sector_records: Dictionary = {}
 var _sector_page: int = 0
 var _sector_page_count: int = 1
 var _sector_grid: GridContainer
@@ -76,8 +85,61 @@ var _sector_btns: Dictionary = {}
 var _selected_diff: WaveData.Difficulty = WaveData.Difficulty.NORMAL
 var _diff_btns: Dictionary = {}
 
+# Next-wave preview strip
+var _wave_preview_panel: PanelContainer
+var _preview_wave_lbl: Label
+var _preview_tags_box: HBoxContainer
+var _preview_units_lbl: Label
+var _last_preview_key: String = ""
+
+# Pause & Audio overlays
+var _pause_overlay: ColorRect
+var _pause_sub: Label
+var _pause_medals_btn: Button
+var _pause_restart_btn: Button
+var _pause_briefing_btn: Button
+var _audio_overlay: ColorRect
+
+# Hall of Decorations (North Korean General) overlay & award toast
+var _medals_overlay: ColorRect
+var _general_view: GeneralMedalsView
+var _medals_count_lbl: Label
+var _medals_weight_lbl: Label
+var _medal_detail_panel: PanelContainer
+var _medal_detail_title: Label
+var _medal_detail_meta: Label
+var _medal_detail_desc: Label
+var _medal_detail_citation: Label
+var _medal_list_box: VBoxContainer
+var _medal_list_btns: Dictionary = {}
+var _unlocked_medals: Array[String] = []
+var _career_stats: Dictionary = {}
+var _selected_medal_id: String = ""
+
+var _medal_toast_panel: PanelContainer
+var _medal_toast_title: Label
+var _medal_toast_body: Label
+var _medal_toast_queue: Array[String] = []
+var _medal_toast_timer: float = 0.0
+var _audio_control_sets: Array[Dictionary] = []
+var _syncing_audio_ui: bool = false
+var _audio_master_muted: bool = false
+var _audio_sfx_vol: float = 0.85
+var _audio_sfx_muted: bool = false
+var _audio_music_vol: float = 0.50
+var _audio_music_muted: bool = false
+
+# 2-click confirmation timers (real seconds)
+var _confirm_restart_timer: float = 0.0
+var _confirm_briefing_timer: float = 0.0
+var _confirm_reset_save_timer: float = 0.0
+
 var _end_overlay: ColorRect
 var _end_title: Label
+var _end_rank_panel: PanelContainer
+var _end_rank_header: Label
+var _end_rank_title: Label
+var _end_new_best_lbl: Label
 var _end_summary: Label
 var _end_next_btn: Button
 var _end_secret_btn: Button
@@ -89,12 +151,48 @@ func _ready() -> void:
 	_build_ui()
 
 func _process(delta: float) -> void:
+	var real_delta: float = delta / maxf(0.01, Engine.time_scale)
 	if _banner_timer > 0.0:
-		_banner_timer -= delta
+		_banner_timer -= real_delta
 		if _banner_timer <= 0.6:
 			_banner_panel.modulate.a = clampf(_banner_timer / 0.6, 0.0, 1.0)
 		if _banner_timer <= 0.0:
 			_banner_panel.visible = false
+
+	if _confirm_restart_timer > 0.0:
+		_confirm_restart_timer -= real_delta
+		if _confirm_restart_timer <= 0.0:
+			_reset_pause_confirms()
+
+	if _confirm_briefing_timer > 0.0:
+		_confirm_briefing_timer -= real_delta
+		if _confirm_briefing_timer <= 0.0:
+			_reset_pause_confirms()
+
+	if _confirm_reset_save_timer > 0.0:
+		_confirm_reset_save_timer -= real_delta
+		if _confirm_reset_save_timer <= 0.0:
+			_reset_save_confirm_btn()
+
+	# Medal awarded toast queue
+	if _medal_toast_timer > 0.0:
+		_medal_toast_timer -= real_delta
+		if _medal_toast_timer <= 0.5:
+			_medal_toast_panel.modulate.a = clampf(_medal_toast_timer / 0.5, 0.0, 1.0)
+		if _medal_toast_timer <= 0.0:
+			_medal_toast_panel.visible = false
+	elif not _medal_toast_queue.is_empty():
+		var next_id: String = _medal_toast_queue.pop_front()
+		var def := MedalData.get_medal_by_id(next_id)
+		if not def.is_empty():
+			var mcol: Color = def.get("metal", COL_AMBER)
+			_medal_toast_panel.add_theme_stylebox_override("panel", _make_box(Color(0.08, 0.10, 0.08, 0.96), mcol, 5, 2, 14, 8))
+			_medal_toast_title.text = "★ DECORATION AWARDED ★"
+			_medal_toast_title.add_theme_color_override("font_color", mcol)
+			_medal_toast_body.text = "%s  (+%dg to General's chest)" % [String(def["name"]), int(def.get("weight_g", 250))]
+			_medal_toast_panel.visible = true
+			_medal_toast_panel.modulate.a = 1.0
+			_medal_toast_timer = 4.2
 
 func _make_box(bg: Color, border: Color, radius: int = 4, border_w: int = 1, pad_x: int = 10, pad_y: int = 6) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -133,10 +231,15 @@ func _build_ui() -> void:
 
 	_build_top_bar()
 	_build_wave_banner()
+	_build_wave_preview()
 	_build_bottom_dock()
 	_build_inspector()
+	_build_pause_overlay()
 	_build_menu_overlay()
+	_build_audio_overlay()
 	_build_end_overlay()
+	_build_medals_overlay()
+	_build_medal_toast()
 
 func _build_top_bar() -> void:
 	var bar := PanelContainer.new()
@@ -207,18 +310,18 @@ func _build_top_bar() -> void:
 		_speed_btns[spd] = sb
 
 	_mute_btn = Button.new()
-	_mute_btn.text = "SFX"
-	_mute_btn.custom_minimum_size = Vector2(52, 28)
+	_mute_btn.text = "AUDIO"
+	_mute_btn.custom_minimum_size = Vector2(58, 28)
 	_style_button(_mute_btn)
 	_mute_btn.pressed.connect(func(): mute_toggled.emit())
 	hbox.add_child(_mute_btn)
 
-	var reset_btn := Button.new()
-	reset_btn.text = "MENU"
-	reset_btn.custom_minimum_size = Vector2(58, 28)
-	_style_button(reset_btn, Color(0.55, 0.32, 0.28))
-	reset_btn.pressed.connect(func(): restart_requested.emit())
-	hbox.add_child(reset_btn)
+	var menu_btn := Button.new()
+	menu_btn.text = "MENU"
+	menu_btn.custom_minimum_size = Vector2(58, 28)
+	_style_button(menu_btn, Color(0.55, 0.45, 0.28))
+	menu_btn.pressed.connect(func(): pause_menu_requested.emit())
+	hbox.add_child(menu_btn)
 
 func _build_wave_banner() -> void:
 	_banner_panel = PanelContainer.new()
@@ -376,6 +479,661 @@ func _build_inspector() -> void:
 	_insp_drone_assign_btn.pressed.connect(func(): drone_assign_requested.emit())
 	_insp_drone_row.add_child(_insp_drone_assign_btn)
 
+func _build_wave_preview() -> void:
+	_wave_preview_panel = PanelContainer.new()
+	_wave_preview_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_wave_preview_panel.grow_horizontal = Control.GROW_DIRECTION_END
+	_wave_preview_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_wave_preview_panel.offset_left = 10
+	_wave_preview_panel.offset_right = 10
+	_wave_preview_panel.offset_top = -124
+	_wave_preview_panel.offset_bottom = -96
+	_wave_preview_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wave_preview_panel.add_theme_stylebox_override("panel", _make_box(Color(0.07, 0.09, 0.08, 0.88), COL_BORDER, 4, 1, 10, 4))
+	_wave_preview_panel.visible = false
+	_root.add_child(_wave_preview_panel)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wave_preview_panel.add_child(hbox)
+
+	_preview_wave_lbl = Label.new()
+	_preview_wave_lbl.add_theme_font_size_override("font_size", 11)
+	_preview_wave_lbl.add_theme_color_override("font_color", COL_AMBER)
+	_preview_wave_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(_preview_wave_lbl)
+
+	_preview_tags_box = HBoxContainer.new()
+	_preview_tags_box.add_theme_constant_override("separation", 4)
+	_preview_tags_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(_preview_tags_box)
+
+	_preview_units_lbl = Label.new()
+	_preview_units_lbl.add_theme_font_size_override("font_size", 11)
+	_preview_units_lbl.add_theme_color_override("font_color", COL_TEXT)
+	_preview_units_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(_preview_units_lbl)
+
+func _build_audio_controls(parent: VBoxContainer) -> void:
+	var title := Label.new()
+	title.text = "AUDIO CONTROLS"
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", COL_AMBER)
+	parent.add_child(title)
+
+	# SFX Row
+	var sfx_row := HBoxContainer.new()
+	sfx_row.add_theme_constant_override("separation", 8)
+	parent.add_child(sfx_row)
+
+	var sfx_lbl := Label.new()
+	sfx_lbl.text = "SFX"
+	sfx_lbl.custom_minimum_size = Vector2(54, 0)
+	sfx_lbl.add_theme_font_size_override("font_size", 12)
+	sfx_lbl.add_theme_color_override("font_color", COL_TEXT)
+	sfx_row.add_child(sfx_lbl)
+
+	var sfx_slider := HSlider.new()
+	sfx_slider.min_value = 0.0
+	sfx_slider.max_value = 100.0
+	sfx_slider.step = 1.0
+	sfx_slider.value = round(_audio_sfx_vol * 100.0)
+	sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sfx_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sfx_slider.focus_mode = Control.FOCUS_NONE
+	sfx_row.add_child(sfx_slider)
+
+	var sfx_pct := Label.new()
+	sfx_pct.text = "%d%%" % int(round(_audio_sfx_vol * 100.0))
+	sfx_pct.custom_minimum_size = Vector2(40, 0)
+	sfx_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	sfx_pct.add_theme_font_size_override("font_size", 12)
+	sfx_pct.add_theme_color_override("font_color", COL_MUTED)
+	sfx_row.add_child(sfx_pct)
+
+	var sfx_mute_btn := Button.new()
+	sfx_mute_btn.text = "ON"
+	sfx_mute_btn.custom_minimum_size = Vector2(54, 26)
+	sfx_mute_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(sfx_mute_btn, COL_GREEN, Color(0.11, 0.19, 0.12, 0.95), 6, 2)
+	sfx_row.add_child(sfx_mute_btn)
+
+	# MUSIC Row
+	var mus_row := HBoxContainer.new()
+	mus_row.add_theme_constant_override("separation", 8)
+	parent.add_child(mus_row)
+
+	var mus_lbl := Label.new()
+	mus_lbl.text = "MUSIC"
+	mus_lbl.custom_minimum_size = Vector2(54, 0)
+	mus_lbl.add_theme_font_size_override("font_size", 12)
+	mus_lbl.add_theme_color_override("font_color", COL_TEXT)
+	mus_row.add_child(mus_lbl)
+
+	var mus_slider := HSlider.new()
+	mus_slider.min_value = 0.0
+	mus_slider.max_value = 110.0
+	mus_slider.step = 1.0
+	mus_slider.value = round(_audio_music_vol * 100.0)
+	mus_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mus_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mus_slider.focus_mode = Control.FOCUS_NONE
+	mus_row.add_child(mus_slider)
+
+	var mus_pct := Label.new()
+	mus_pct.text = "%d%%" % int(round(_audio_music_vol * 100.0))
+	mus_pct.custom_minimum_size = Vector2(44, 0)
+	mus_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mus_pct.add_theme_font_size_override("font_size", 12)
+	mus_pct.add_theme_color_override("font_color", COL_MUTED)
+	mus_row.add_child(mus_pct)
+
+	var mus_mute_btn := Button.new()
+	mus_mute_btn.text = "ON"
+	mus_mute_btn.custom_minimum_size = Vector2(54, 26)
+	mus_mute_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(mus_mute_btn, COL_GREEN, Color(0.11, 0.19, 0.12, 0.95), 6, 2)
+	mus_row.add_child(mus_mute_btn)
+
+	sfx_slider.value_changed.connect(func(v: float):
+		if _syncing_audio_ui:
+			return
+		_audio_sfx_vol = clampf(v / 100.0, 0.0, 1.0)
+		if _audio_sfx_vol > 0.0 and _audio_sfx_muted:
+			_audio_sfx_muted = false
+		_sync_audio_ui_controls()
+		_emit_audio_changed()
+	)
+	sfx_mute_btn.pressed.connect(func():
+		_audio_sfx_muted = not _audio_sfx_muted
+		_sync_audio_ui_controls()
+		_emit_audio_changed()
+	)
+	mus_slider.value_changed.connect(func(v: float):
+		if _syncing_audio_ui:
+			return
+		_audio_music_vol = clampf(v / 100.0, 0.0, 1.10)
+		if _audio_music_vol > 0.0 and _audio_music_muted:
+			_audio_music_muted = false
+		_sync_audio_ui_controls()
+		_emit_audio_changed()
+	)
+	mus_mute_btn.pressed.connect(func():
+		_audio_music_muted = not _audio_music_muted
+		_sync_audio_ui_controls()
+		_emit_audio_changed()
+	)
+
+	_audio_control_sets.append({
+		"sfx_slider": sfx_slider,
+		"sfx_pct": sfx_pct,
+		"sfx_mute_btn": sfx_mute_btn,
+		"mus_slider": mus_slider,
+		"mus_pct": mus_pct,
+		"mus_mute_btn": mus_mute_btn,
+	})
+
+func _emit_audio_changed() -> void:
+	audio_settings_changed.emit(_audio_master_muted, _audio_sfx_vol, _audio_sfx_muted, _audio_music_vol, _audio_music_muted)
+
+func set_audio_state(master_muted: bool, sfx_vol: float, sfx_muted: bool, music_vol: float, music_muted: bool) -> void:
+	_audio_master_muted = master_muted
+	_audio_sfx_vol = clampf(sfx_vol, 0.0, 1.0)
+	_audio_sfx_muted = sfx_muted
+	_audio_music_vol = clampf(music_vol, 0.0, 1.10)
+	_audio_music_muted = music_muted
+	_sync_audio_ui_controls()
+
+func _sync_audio_ui_controls() -> void:
+	_syncing_audio_ui = true
+	for s in _audio_control_sets:
+		var sfx_slider: HSlider = s["sfx_slider"]
+		var sfx_pct: Label = s["sfx_pct"]
+		var sfx_btn: Button = s["sfx_mute_btn"]
+		var mus_slider: HSlider = s["mus_slider"]
+		var mus_pct: Label = s["mus_pct"]
+		var mus_btn: Button = s["mus_mute_btn"]
+
+		sfx_slider.value = round(_audio_sfx_vol * 100.0)
+		sfx_pct.text = "%d%%" % int(round(_audio_sfx_vol * 100.0))
+		sfx_btn.text = "MUTE" if _audio_sfx_muted else "ON"
+		_style_button(
+			sfx_btn,
+			COL_RED if _audio_sfx_muted else COL_GREEN,
+			Color(0.24, 0.10, 0.09, 0.95) if _audio_sfx_muted else Color(0.11, 0.19, 0.12, 0.95),
+			6, 2
+		)
+
+		var mus_pct_val: int = int(round(_audio_music_vol * 100.0))
+		mus_slider.value = float(mus_pct_val)
+		mus_pct.text = "%d%%" % mus_pct_val
+		mus_btn.text = "MUTE" if _audio_music_muted else "ON"
+		_style_button(
+			mus_btn,
+			COL_RED if _audio_music_muted else COL_GREEN,
+			Color(0.24, 0.10, 0.09, 0.95) if _audio_music_muted else Color(0.11, 0.19, 0.12, 0.95),
+			6, 2
+		)
+	_syncing_audio_ui = false
+
+func _build_pause_overlay() -> void:
+	_pause_overlay = ColorRect.new()
+	_pause_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_pause_overlay.color = Color(0.02, 0.03, 0.02, 0.78)
+	_pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_pause_overlay.visible = false
+	_root.add_child(_pause_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_pause_overlay.add_child(center)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(440, 330)
+	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 24, 20))
+	center.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	card.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "TACTICAL PAUSE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", COL_AMBER)
+	vbox.add_child(title)
+
+	_pause_sub = Label.new()
+	_pause_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pause_sub.add_theme_font_size_override("font_size", 12)
+	_pause_sub.add_theme_color_override("font_color", COL_MUTED)
+	vbox.add_child(_pause_sub)
+
+	vbox.add_child(HSeparator.new())
+	_build_audio_controls(vbox)
+	vbox.add_child(HSeparator.new())
+
+	var resume_btn := Button.new()
+	resume_btn.text = "RESUME MISSION  [ESC]"
+	resume_btn.custom_minimum_size = Vector2(0, 42)
+	resume_btn.add_theme_font_size_override("font_size", 14)
+	_style_button(resume_btn, COL_GREEN, Color(0.11, 0.24, 0.13, 0.98))
+	resume_btn.pressed.connect(func():
+		hide_pause_menu()
+		pause_menu_resumed.emit()
+	)
+	vbox.add_child(resume_btn)
+
+	_pause_medals_btn = Button.new()
+	_pause_medals_btn.text = "★ DECORATIONS (0/36)"
+	_pause_medals_btn.custom_minimum_size = Vector2(0, 36)
+	_pause_medals_btn.add_theme_font_size_override("font_size", 13)
+	_style_button(_pause_medals_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96))
+	_pause_medals_btn.pressed.connect(func(): show_medals_hall())
+	vbox.add_child(_pause_medals_btn)
+
+	_pause_restart_btn = Button.new()
+	_pause_restart_btn.text = "RESTART SECTOR"
+	_pause_restart_btn.custom_minimum_size = Vector2(0, 38)
+	_pause_restart_btn.add_theme_font_size_override("font_size", 13)
+	_style_button(_pause_restart_btn, COL_AMBER, Color(0.18, 0.15, 0.10, 0.96))
+	_pause_restart_btn.pressed.connect(_on_pause_restart_clicked)
+	vbox.add_child(_pause_restart_btn)
+
+	_pause_briefing_btn = Button.new()
+	_pause_briefing_btn.text = "RETURN TO BRIEFING"
+	_pause_briefing_btn.custom_minimum_size = Vector2(0, 38)
+	_pause_briefing_btn.add_theme_font_size_override("font_size", 13)
+	_style_button(_pause_briefing_btn, Color(0.65, 0.34, 0.30), Color(0.18, 0.10, 0.10, 0.95))
+	_pause_briefing_btn.pressed.connect(_on_pause_briefing_clicked)
+	vbox.add_child(_pause_briefing_btn)
+
+func _on_pause_restart_clicked() -> void:
+	if _confirm_restart_timer > 0.0:
+		_reset_pause_confirms()
+		hide_pause_menu()
+		replay_sector_requested.emit()
+	else:
+		_reset_pause_confirms()
+		_confirm_restart_timer = 3.5
+		_pause_restart_btn.text = "CONFIRM RESTART SECTOR? (CLICK AGAIN)"
+		_style_button(_pause_restart_btn, COL_RED, Color(0.34, 0.10, 0.09, 0.98))
+
+func _on_pause_briefing_clicked() -> void:
+	if _confirm_briefing_timer > 0.0:
+		_reset_pause_confirms()
+		hide_pause_menu()
+		restart_requested.emit()
+	else:
+		_reset_pause_confirms()
+		_confirm_briefing_timer = 3.5
+		_pause_briefing_btn.text = "CONFIRM EXIT TO BRIEFING? (CLICK AGAIN)"
+		_style_button(_pause_briefing_btn, COL_RED, Color(0.34, 0.10, 0.09, 0.98))
+
+func _reset_pause_confirms() -> void:
+	_confirm_restart_timer = 0.0
+	_confirm_briefing_timer = 0.0
+	if _pause_restart_btn != null:
+		_pause_restart_btn.text = "RESTART SECTOR"
+		_style_button(_pause_restart_btn, COL_AMBER, Color(0.18, 0.15, 0.10, 0.96))
+	if _pause_briefing_btn != null:
+		_pause_briefing_btn.text = "RETURN TO BRIEFING"
+		_style_button(_pause_briefing_btn, Color(0.65, 0.34, 0.30), Color(0.18, 0.10, 0.10, 0.95))
+
+func show_pause_menu(sector_name: String, diff_name: String) -> void:
+	_reset_pause_confirms()
+	_pause_sub.text = "%s  •  [%s]" % [sector_name, diff_name]
+	_sync_audio_ui_controls()
+	_pause_overlay.visible = true
+
+func hide_pause_menu() -> void:
+	_reset_pause_confirms()
+	_pause_overlay.visible = false
+
+func is_pause_menu_visible() -> bool:
+	return _pause_overlay != null and _pause_overlay.visible
+
+func _build_audio_overlay() -> void:
+	_audio_overlay = ColorRect.new()
+	_audio_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_audio_overlay.color = Color(0.02, 0.03, 0.02, 0.78)
+	_audio_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_audio_overlay.visible = false
+	_root.add_child(_audio_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_audio_overlay.add_child(center)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(420, 210)
+	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 24, 20))
+	center.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	card.add_child(vbox)
+
+	_build_audio_controls(vbox)
+
+	var close_btn := Button.new()
+	close_btn.text = "CLOSE"
+	close_btn.custom_minimum_size = Vector2(0, 38)
+	close_btn.add_theme_font_size_override("font_size", 13)
+	_style_button(close_btn, COL_GREEN, Color(0.11, 0.24, 0.13, 0.98))
+	close_btn.pressed.connect(func(): _audio_overlay.visible = false)
+	vbox.add_child(close_btn)
+
+func is_audio_overlay_visible() -> bool:
+	return _audio_overlay != null and _audio_overlay.visible
+
+func hide_audio_overlay() -> void:
+	if _audio_overlay != null:
+		_audio_overlay.visible = false
+
+func _build_medal_toast() -> void:
+	_medal_toast_panel = PanelContainer.new()
+	_medal_toast_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_medal_toast_panel.offset_left = -370
+	_medal_toast_panel.offset_right = -12
+	_medal_toast_panel.offset_top = 60
+	_medal_toast_panel.offset_bottom = 114
+	_medal_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medal_toast_panel.add_theme_stylebox_override("panel", _make_box(Color(0.08, 0.10, 0.08, 0.95), COL_AMBER, 5, 2, 14, 8))
+	_medal_toast_panel.visible = false
+	_root.add_child(_medal_toast_panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 2)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medal_toast_panel.add_child(vbox)
+
+	_medal_toast_title = Label.new()
+	_medal_toast_title.add_theme_font_size_override("font_size", 12)
+	_medal_toast_title.add_theme_color_override("font_color", COL_AMBER)
+	vbox.add_child(_medal_toast_title)
+
+	_medal_toast_body = Label.new()
+	_medal_toast_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_medal_toast_body.add_theme_font_size_override("font_size", 11)
+	_medal_toast_body.add_theme_color_override("font_color", Color.WHITE)
+	vbox.add_child(_medal_toast_body)
+
+func queue_medal_toasts(medal_ids: Array[String]) -> void:
+	for mid in medal_ids:
+		_medal_toast_queue.append(mid)
+
+func _build_medals_overlay() -> void:
+	_medals_overlay = ColorRect.new()
+	_medals_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_medals_overlay.color = Color(0.02, 0.03, 0.02, 0.85)
+	_medals_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_medals_overlay.visible = false
+	_root.add_child(_medals_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_medals_overlay.add_child(center)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(960, 590)
+	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 20, 16))
+	center.add_child(card)
+
+	var root_v := VBoxContainer.new()
+	root_v.add_theme_constant_override("separation", 10)
+	card.add_child(root_v)
+
+	# Header bar
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", 10)
+	root_v.add_child(hdr)
+
+	var title := Label.new()
+	title.text = "HALL OF SOVEREIGN DECORATIONS  —  COMMANDING GENERAL'S CHEST"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", COL_AMBER)
+	hdr.add_child(title)
+
+	var close_btn := Button.new()
+	close_btn.text = "CLOSE  [ESC]"
+	close_btn.custom_minimum_size = Vector2(108, 30)
+	close_btn.add_theme_font_size_override("font_size", 12)
+	_style_button(close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 3)
+	close_btn.pressed.connect(func(): hide_medals_hall())
+	hdr.add_child(close_btn)
+
+	# Main 2-column showcase
+	var cols := HBoxContainer.new()
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cols.add_theme_constant_override("separation", 14)
+	root_v.add_child(cols)
+
+	# Left column: The Sovereign General portrait + weight readout
+	var left_col := VBoxContainer.new()
+	left_col.custom_minimum_size = Vector2(410, 0)
+	left_col.add_theme_constant_override("separation", 6)
+	cols.add_child(left_col)
+
+	_general_view = GeneralMedalsView.new()
+	_general_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_general_view.custom_minimum_size = Vector2(410, 456)
+	_general_view.medal_selected.connect(_on_medal_selected)
+	left_col.add_child(_general_view)
+
+	_medals_count_lbl = Label.new()
+	_medals_count_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_medals_count_lbl.add_theme_font_size_override("font_size", 13)
+	_medals_count_lbl.add_theme_color_override("font_color", COL_AMBER)
+	left_col.add_child(_medals_count_lbl)
+
+	_medals_weight_lbl = Label.new()
+	_medals_weight_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_medals_weight_lbl.add_theme_font_size_override("font_size", 11)
+	_medals_weight_lbl.add_theme_color_override("font_color", COL_MUTED)
+	left_col.add_child(_medals_weight_lbl)
+
+	# Right column: Selected Decoration Citation Plaque + Scrollable Directory
+	var right_col := VBoxContainer.new()
+	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_col.add_theme_constant_override("separation", 8)
+	cols.add_child(right_col)
+
+	_medal_detail_panel = PanelContainer.new()
+	_medal_detail_panel.custom_minimum_size = Vector2(0, 126)
+	_medal_detail_panel.add_theme_stylebox_override("panel", _make_box(Color(0.08, 0.10, 0.08, 0.96), COL_AMBER, 5, 1, 14, 10))
+	right_col.add_child(_medal_detail_panel)
+
+	var dbox := VBoxContainer.new()
+	dbox.add_theme_constant_override("separation", 4)
+	_medal_detail_panel.add_child(dbox)
+
+	_medal_detail_title = Label.new()
+	_medal_detail_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_medal_detail_title.add_theme_font_size_override("font_size", 15)
+	_medal_detail_title.add_theme_color_override("font_color", COL_AMBER)
+	dbox.add_child(_medal_detail_title)
+
+	_medal_detail_meta = Label.new()
+	_medal_detail_meta.add_theme_font_size_override("font_size", 11)
+	_medal_detail_meta.add_theme_color_override("font_color", COL_GREEN)
+	dbox.add_child(_medal_detail_meta)
+
+	_medal_detail_desc = Label.new()
+	_medal_detail_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_medal_detail_desc.add_theme_font_size_override("font_size", 12)
+	_medal_detail_desc.add_theme_color_override("font_color", COL_TEXT)
+	dbox.add_child(_medal_detail_desc)
+
+	_medal_detail_citation = Label.new()
+	_medal_detail_citation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_medal_detail_citation.add_theme_font_size_override("font_size", 11)
+	_medal_detail_citation.add_theme_color_override("font_color", COL_MUTED)
+	dbox.add_child(_medal_detail_citation)
+
+	var dir_lbl := Label.new()
+	dir_lbl.text = "ALL 36 DECORATIONS  (CLICK ANY MEDAL ON THE GENERAL OR BELOW TO INSPECT)"
+	dir_lbl.add_theme_font_size_override("font_size", 10)
+	dir_lbl.add_theme_color_override("font_color", COL_MUTED)
+	right_col.add_child(dir_lbl)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right_col.add_child(scroll)
+
+	_medal_list_box = VBoxContainer.new()
+	_medal_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_medal_list_box.add_theme_constant_override("separation", 4)
+	scroll.add_child(_medal_list_box)
+
+	for m in MedalData.get_all_medals():
+		var mid: String = String(m["id"])
+		var btn := Button.new()
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(0, 28)
+		btn.add_theme_font_size_override("font_size", 11)
+		_style_button(btn, COL_BORDER, Color(0.10, 0.12, 0.10, 0.94), 10, 3)
+		btn.pressed.connect(func(): _on_medal_selected(mid))
+		_medal_list_box.add_child(btn)
+		_medal_list_btns[mid] = btn
+
+func set_medals_data(unlocked: Array[String], stats: Dictionary, sector_records: Dictionary) -> void:
+	_unlocked_medals = unlocked.duplicate()
+	_career_stats = stats.duplicate(true)
+	_sector_records = sector_records.duplicate(true)
+	var total := MedalData.get_all_medals().size()
+	var cnt := _unlocked_medals.size()
+	if _menu_medals_btn != null:
+		_menu_medals_btn.text = "★ MEDALS (%d/%d)" % [cnt, total]
+	if _pause_medals_btn != null:
+		_pause_medals_btn.text = "★ DECORATIONS (%d/%d)" % [cnt, total]
+	if _medals_overlay != null and _medals_overlay.visible:
+		_refresh_medals_hall()
+
+func show_medals_hall() -> void:
+	if _selected_medal_id == "":
+		if not _unlocked_medals.is_empty():
+			_selected_medal_id = _unlocked_medals[_unlocked_medals.size() - 1]
+		else:
+			_selected_medal_id = String(MedalData.get_all_medals()[0]["id"])
+	_refresh_medals_hall()
+	_medals_overlay.visible = true
+
+func hide_medals_hall() -> void:
+	if _medals_overlay != null:
+		_medals_overlay.visible = false
+
+func is_medals_hall_visible() -> bool:
+	return _medals_overlay != null and _medals_overlay.visible
+
+func _on_medal_selected(medal_id: String) -> void:
+	_selected_medal_id = medal_id
+	_general_view.set_selected_medal(medal_id)
+	_refresh_medal_detail()
+	_refresh_medal_list_styles()
+
+func _refresh_medals_hall() -> void:
+	var all_medals := MedalData.get_all_medals()
+	var cnt := _unlocked_medals.size()
+	var total := all_medals.size()
+	_general_view.set_medals(_unlocked_medals, _selected_medal_id)
+	_medals_count_lbl.text = "DECORATIONS PINNED: %d / %d" % [cnt, total]
+
+	var grams := 0
+	for mid in _unlocked_medals:
+		var d := MedalData.get_medal_by_id(mid)
+		grams += int(d.get("weight_g", 250))
+	var kg: float = float(grams) / 1000.0
+	var advisory := "TRAGICALLY AERODYNAMIC"
+	if cnt >= 35:
+		advisory = "CAP-MOUNTED — GRAVITATIONAL ANOMALY"
+	elif cnt >= 30:
+		advisory = "TROUSER-MOUNTED — FORKLIFT ADVISED"
+	elif cnt >= 24:
+		advisory = "SLEEVE OVERFLOW — SPINAL WARNING"
+	elif cnt >= 16:
+		advisory = "DUAL-CHEST ARMOR — TAILOR WEEPING"
+	elif cnt >= 8:
+		advisory = "HEAVILY DECORATED — MILD SWAGGER"
+	elif cnt >= 1:
+		advisory = "REGULATION POLISH — ROOM FOR MORE"
+	_medals_weight_lbl.text = "UNIFORM HARDWARE: %.1f kg  •  %s" % [kg, advisory]
+
+	for m in all_medals:
+		var mid: String = String(m["id"])
+		var btn: Button = _medal_list_btns[mid]
+		var earned: bool = _unlocked_medals.has(mid)
+		var prog := MedalData.get_progress(mid, _career_stats, _sector_records)
+		var badge := "★" if earned else "○"
+		var status := "EARNED" if earned else String(prog["label"])
+		btn.text = "%s  [%s]  %s   —   %s" % [badge, String(m["category"]), String(m["name"]), status]
+
+	_refresh_medal_detail()
+	_refresh_medal_list_styles()
+
+func _refresh_medal_list_styles() -> void:
+	for m in MedalData.get_all_medals():
+		var mid: String = String(m["id"])
+		var btn: Button = _medal_list_btns[mid]
+		var earned: bool = _unlocked_medals.has(mid)
+		var is_sel: bool = (mid == _selected_medal_id)
+		var mcol: Color = m.get("metal", COL_AMBER)
+		if is_sel:
+			_style_button(btn, Color.WHITE, Color(0.18, 0.22, 0.16, 0.98), 10, 3)
+			btn.add_theme_color_override("font_color", Color.WHITE)
+		elif earned:
+			_style_button(btn, mcol.darkened(0.25), Color(0.12, 0.15, 0.11, 0.96), 10, 3)
+			btn.add_theme_color_override("font_color", mcol.lightened(0.15))
+		else:
+			_style_button(btn, Color(0.22, 0.24, 0.22), Color(0.08, 0.09, 0.08, 0.90), 10, 3)
+			btn.add_theme_color_override("font_color", COL_MUTED)
+
+func _refresh_medal_detail() -> void:
+	var def := MedalData.get_medal_by_id(_selected_medal_id)
+	if def.is_empty():
+		return
+	var earned: bool = _unlocked_medals.has(_selected_medal_id)
+	var prog := MedalData.get_progress(_selected_medal_id, _career_stats, _sector_records)
+	var mcol: Color = def.get("metal", COL_AMBER)
+	_medal_detail_panel.add_theme_stylebox_override(
+		"panel",
+		_make_box(Color(0.09, 0.11, 0.09, 0.97), mcol if earned else COL_BORDER, 5, 2 if earned else 1, 14, 10)
+	)
+	_medal_detail_title.text = "%s %s" % ["★" if earned else "○", String(def["name"])]
+	_medal_detail_title.add_theme_color_override("font_color", mcol if earned else COL_TEXT)
+	var slot_note := ""
+	if earned:
+		var slot_idx := _unlocked_medals.find(_selected_medal_id)
+		if slot_idx >= 34:
+			slot_note = "  •  PINNED ON PEAKED CAP"
+		elif slot_idx >= 30:
+			slot_note = "  •  PINNED ON TROUSERS"
+		elif slot_idx >= 26:
+			slot_note = "  •  PINNED ON SLEEVE"
+		elif slot_idx >= 22:
+			slot_note = "  •  PINNED ON SASH"
+		elif slot_idx >= 16:
+			slot_note = "  •  LOWER TORSO"
+		elif slot_idx >= 8:
+			slot_note = "  •  RIGHT CHEST"
+		else:
+			slot_note = "  •  LEFT CHEST"
+	_medal_detail_meta.text = "%s  •  %s  •  %dg HARDWARE%s" % [
+		String(def["category"]),
+		"EARNED" if earned else ("PROGRESS: " + String(prog["label"])),
+		int(def.get("weight_g", 250)),
+		slot_note,
+	]
+	_medal_detail_meta.add_theme_color_override("font_color", COL_GREEN if earned else COL_AMBER)
+	_medal_detail_desc.text = "Requirement: %s" % String(def["desc"])
+	_medal_detail_citation.text = "\"%s\"" % String(def["citation"])
+
 func _build_menu_overlay() -> void:
 	_menu_overlay = ColorRect.new()
 	_menu_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -452,9 +1210,36 @@ func _build_menu_overlay() -> void:
 	_sector_next_btn.pressed.connect(func(): _set_sector_page(_sector_page + 1))
 	sector_header.add_child(_sector_next_btn)
 
+	_menu_medals_btn = Button.new()
+	_menu_medals_btn.text = "★ MEDALS (0/36)"
+	_menu_medals_btn.custom_minimum_size = Vector2(118, 24)
+	_menu_medals_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_menu_medals_btn, COL_AMBER, Color(0.18, 0.15, 0.09, 0.96), 8, 2)
+	_menu_medals_btn.pressed.connect(func(): show_medals_hall())
+	sector_header.add_child(_menu_medals_btn)
+
+	var audio_btn := Button.new()
+	audio_btn.text = "AUDIO"
+	audio_btn.custom_minimum_size = Vector2(60, 24)
+	audio_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(audio_btn, COL_BORDER, Color(0.11, 0.14, 0.12, 0.95), 8, 2)
+	audio_btn.pressed.connect(func():
+		_sync_audio_ui_controls()
+		_audio_overlay.visible = true
+	)
+	sector_header.add_child(audio_btn)
+
+	_menu_reset_btn = Button.new()
+	_menu_reset_btn.text = "RESET SAVE"
+	_menu_reset_btn.custom_minimum_size = Vector2(86, 24)
+	_menu_reset_btn.add_theme_font_size_override("font_size", 10)
+	_style_button(_menu_reset_btn, Color(0.52, 0.28, 0.26), Color(0.14, 0.09, 0.09, 0.92), 6, 2)
+	_menu_reset_btn.pressed.connect(_on_menu_reset_save_clicked)
+	sector_header.add_child(_menu_reset_btn)
+
 	_sector_grid = GridContainer.new()
 	_sector_grid.columns = 4
-	_sector_grid.custom_minimum_size = Vector2(0, 100)
+	_sector_grid.custom_minimum_size = Vector2(0, 108)
 	_sector_grid.add_theme_constant_override("h_separation", 8)
 	_sector_grid.add_theme_constant_override("v_separation", 8)
 	vbox.add_child(_sector_grid)
@@ -464,7 +1249,7 @@ func _build_menu_overlay() -> void:
 		var b := Button.new()
 		b.text = "%02d %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 46)
+		b.custom_minimum_size = Vector2(0, 50)
 		b.add_theme_font_size_override("font_size", 11)
 		_style_button(b, COL_AMBER)
 		b.pressed.connect(func(): _select_sector(mid, true))
@@ -476,6 +1261,12 @@ func _build_menu_overlay() -> void:
 	_menu_brief.add_theme_font_size_override("font_size", 13)
 	_menu_brief.add_theme_color_override("font_color", COL_TEXT)
 	vbox.add_child(_menu_brief)
+
+	_menu_record_label = Label.new()
+	_menu_record_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_menu_record_label.add_theme_font_size_override("font_size", 11)
+	_menu_record_label.add_theme_color_override("font_color", COL_MUTED)
+	vbox.add_child(_menu_record_label)
 
 	var diff_title := Label.new()
 	diff_title.text = "SELECT DIFFICULTY:"
@@ -500,7 +1291,7 @@ func _build_menu_overlay() -> void:
 		_diff_btns[d] = b
 
 	var controls := Label.new()
-	controls.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB/ESC] Cancel\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Pause"
+	controls.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB] Cancel  •  [ESC] Cancel / Pause Menu\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Tactical Freeze"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 11)
 	controls.add_theme_color_override("font_color", COL_MUTED)
@@ -556,15 +1347,76 @@ func _set_sector_page(page_idx: int) -> void:
 		else:
 			_style_button(pb, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92), 6, 2)
 
+func _on_menu_reset_save_clicked() -> void:
+	if _confirm_reset_save_timer > 0.0:
+		_reset_save_confirm_btn()
+		reset_save_requested.emit()
+	else:
+		_confirm_reset_save_timer = 3.5
+		_menu_reset_btn.text = "CONFIRM?"
+		_style_button(_menu_reset_btn, COL_RED, Color(0.36, 0.10, 0.09, 0.98), 6, 2)
+
+func _reset_save_confirm_btn() -> void:
+	_confirm_reset_save_timer = 0.0
+	if _menu_reset_btn != null:
+		_menu_reset_btn.text = "RESET SAVE"
+		_style_button(_menu_reset_btn, Color(0.52, 0.28, 0.26), Color(0.14, 0.09, 0.09, 0.92), 6, 2)
+
+func set_sector_records(records: Dictionary) -> void:
+	_sector_records = records.duplicate(true)
+	_refresh_sector_cards()
+	_refresh_selected_sector_record()
+
+func _refresh_sector_cards() -> void:
+	for m in _all_maps:
+		var mid: String = String(m["id"])
+		if not _sector_btns.has(mid):
+			continue
+		var btn: Button = _sector_btns[mid]
+		var rec: Dictionary = _sector_records.get(mid, {})
+		if bool(rec.get("cleared", false)):
+			var rank_num: int = int(rec.get("best_rank_num", 1))
+			var medal := RankData.get_medal_info(rank_num)
+			var d_idx: int = clampi(int(rec.get("best_difficulty", 1)), 0, 3)
+			var d_name: String = String(WaveData.get_difficulty_config(d_idx as WaveData.Difficulty)["name"])
+			btn.text = "%02d %s  %s\nCLEARED [%s] • R%d" % [int(m["index"]), String(m["short_name"]), String(medal["short"]), d_name, rank_num]
+		else:
+			btn.text = "%02d %s\n%s" % [int(m["index"]), String(m["short_name"]), String(m["tag"])]
+	# Re-apply border styling so cleared cards highlight subtly
+	_select_sector(_selected_map_id, false)
+
+func _refresh_selected_sector_record() -> void:
+	if _menu_record_label == null:
+		return
+	var rec: Dictionary = _sector_records.get(_selected_map_id, {})
+	if bool(rec.get("cleared", false)):
+		var rank_num: int = int(rec.get("best_rank_num", 1))
+		var medal := RankData.get_medal_info(rank_num)
+		var d_idx: int = clampi(int(rec.get("best_difficulty", 1)), 0, 3)
+		var d_name: String = String(WaveData.get_difficulty_config(d_idx as WaveData.Difficulty)["name"])
+		var pct: float = float(rec.get("best_pct", 0.0))
+		var worth: int = int(rec.get("best_net_worth", 0))
+		var r_title: String = String(rec.get("best_rank_title", "Private"))
+		_menu_record_label.text = "BEST RECORD: %s %s  •  [%s]  •  %.1f%%  •  NET $%d  •  RANK %d/50: %s" % [
+			String(medal["stars"]), String(medal["id"]), d_name, pct, worth, rank_num, r_title
+		]
+		_menu_record_label.add_theme_color_override("font_color", medal["color"])
+	else:
+		_menu_record_label.text = "SECTOR STATUS: UNCLEARED  •  NO SOVEREIGN CITATION ON FILE"
+		_menu_record_label.add_theme_color_override("font_color", COL_MUTED)
+
 func _select_sector(map_id: String, emit_signal: bool) -> void:
 	_selected_map_id = map_id
 	var m := MapData.get_map_by_id(map_id)
 	_menu_title.text = "%s: %s" % [GAME_TITLE, String(m["short_name"])]
 	_menu_sub.text = "SECTOR %02d  •  %s" % [int(m["index"]), String(m["tag"])]
 	_menu_brief.text = String(m["briefing"])
+	_refresh_selected_sector_record()
 
 	for key in _sector_btns.keys():
 		var btn: Button = _sector_btns[key]
+		var rec: Dictionary = _sector_records.get(String(key), {})
+		var is_cleared: bool = bool(rec.get("cleared", false))
 		if String(key) == map_id:
 			var bname: String = String(m["biome"])
 			var accent := COL_GREEN
@@ -599,6 +1451,10 @@ func _select_sector(map_id: String, emit_signal: bool) -> void:
 			elif bname == "alien":
 				accent = Color(0.88, 0.32, 1.0)
 			_style_button(btn, accent, Color(0.18, 0.21, 0.16, 0.98))
+		elif is_cleared:
+			var medal := RankData.get_medal_info(int(rec.get("best_rank_num", 1)))
+			var mcol: Color = medal["color"]
+			_style_button(btn, mcol.darkened(0.22), Color(0.11, 0.15, 0.12, 0.95))
 		else:
 			_style_button(btn, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
 
@@ -634,12 +1490,12 @@ func _build_end_overlay() -> void:
 	_end_overlay.add_child(center)
 
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(460, 260)
+	card.custom_minimum_size = Vector2(580, 340)
 	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 26, 22))
 	center.add_child(card)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 16)
+	vbox.add_theme_constant_override("separation", 14)
 	card.add_child(vbox)
 
 	_end_title = Label.new()
@@ -647,9 +1503,38 @@ func _build_end_overlay() -> void:
 	_end_title.add_theme_font_size_override("font_size", 26)
 	vbox.add_child(_end_title)
 
+	_end_rank_panel = PanelContainer.new()
+	_end_rank_panel.add_theme_stylebox_override("panel", _make_box(Color(0.10, 0.12, 0.09, 0.96), COL_AMBER, 5, 1, 14, 10))
+	vbox.add_child(_end_rank_panel)
+
+	var rbox := VBoxContainer.new()
+	rbox.add_theme_constant_override("separation", 4)
+	_end_rank_panel.add_child(rbox)
+
+	_end_rank_header = Label.new()
+	_end_rank_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_end_rank_header.add_theme_font_size_override("font_size", 12)
+	_end_rank_header.add_theme_color_override("font_color", COL_AMBER)
+	rbox.add_child(_end_rank_header)
+
+	_end_rank_title = Label.new()
+	_end_rank_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_end_rank_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_end_rank_title.add_theme_font_size_override("font_size", 16)
+	_end_rank_title.add_theme_color_override("font_color", Color.WHITE)
+	rbox.add_child(_end_rank_title)
+
+	_end_new_best_lbl = Label.new()
+	_end_new_best_lbl.text = "★ NEW SECTOR PERSONAL BEST! ★"
+	_end_new_best_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_end_new_best_lbl.add_theme_font_size_override("font_size", 11)
+	_end_new_best_lbl.add_theme_color_override("font_color", COL_GREEN)
+	_end_new_best_lbl.visible = false
+	rbox.add_child(_end_new_best_lbl)
+
 	_end_summary = Label.new()
 	_end_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_end_summary.add_theme_font_size_override("font_size", 14)
+	_end_summary.add_theme_font_size_override("font_size", 13)
 	_end_summary.add_theme_color_override("font_color", COL_TEXT)
 	vbox.add_child(_end_summary)
 
@@ -657,17 +1542,29 @@ func _build_end_overlay() -> void:
 	btn_row.add_theme_constant_override("separation", 10)
 	vbox.add_child(btn_row)
 
-	var retry_btn := Button.new()
-	retry_btn.text = "RETURN TO BRIEFING"
-	retry_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	retry_btn.custom_minimum_size = Vector2(0, 42)
-	retry_btn.add_theme_font_size_override("font_size", 14)
-	_style_button(retry_btn, COL_AMBER, Color(0.18, 0.16, 0.10, 0.96))
-	retry_btn.pressed.connect(func():
+	var briefing_btn := Button.new()
+	briefing_btn.text = "BRIEFING"
+	briefing_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	briefing_btn.custom_minimum_size = Vector2(0, 42)
+	briefing_btn.add_theme_font_size_override("font_size", 14)
+	_style_button(briefing_btn, COL_BORDER, Color(0.12, 0.14, 0.12, 0.96))
+	briefing_btn.pressed.connect(func():
 		_end_overlay.visible = false
 		restart_requested.emit()
 	)
-	btn_row.add_child(retry_btn)
+	btn_row.add_child(briefing_btn)
+
+	var replay_btn := Button.new()
+	replay_btn.text = "REPLAY SECTOR"
+	replay_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	replay_btn.custom_minimum_size = Vector2(0, 42)
+	replay_btn.add_theme_font_size_override("font_size", 14)
+	_style_button(replay_btn, COL_AMBER, Color(0.18, 0.16, 0.10, 0.96))
+	replay_btn.pressed.connect(func():
+		_end_overlay.visible = false
+		replay_sector_requested.emit()
+	)
+	btn_row.add_child(replay_btn)
 
 	_end_next_btn = Button.new()
 	_end_next_btn.text = "NEXT SECTOR >"
@@ -698,19 +1595,81 @@ func _build_end_overlay() -> void:
 func show_menu() -> void:
 	_menu_overlay.visible = true
 	_end_overlay.visible = false
+	_pause_overlay.visible = false
+	_audio_overlay.visible = false
 	_inspector_panel.visible = false
+	_wave_preview_panel.visible = false
+	_reset_save_confirm_btn()
 
 func hide_menu() -> void:
 	_menu_overlay.visible = false
+	_audio_overlay.visible = false
 
 func get_selected_difficulty() -> WaveData.Difficulty:
 	return _selected_diff
 
-func show_end_screen(victory: bool, sector_name: String, waves_cleared: int, total_waves: int, kills: int, diff_name: String, has_next_sector: bool, secret_event: Dictionary = {}) -> void:
+func show_end_screen(
+	victory: bool,
+	sector_name: String,
+	waves_cleared: int,
+	total_waves: int,
+	kills: int,
+	diff_name: String,
+	has_next_sector: bool,
+	eval_res: Dictionary = {},
+	is_new_best: bool = false,
+	secret_event: Dictionary = {}
+) -> void:
+	_pause_overlay.visible = false
+	_wave_preview_panel.visible = false
 	_end_overlay.visible = true
 	_end_title.text = "SECTOR SECURED" if victory else "COMMAND HQ BREACHED"
 	_end_title.add_theme_color_override("font_color", COL_GREEN if victory else COL_RED)
-	_end_summary.text = "%s\nDifficulty: %s\nWaves Cleared: %d / %d\nHostiles Destroyed: %d" % [sector_name, diff_name, waves_cleared, total_waves, kills]
+
+	if victory:
+		var mcol: Color = eval_res.get("medal_color", COL_AMBER)
+		_end_rank_panel.add_theme_stylebox_override("panel", _make_box(Color(0.09, 0.12, 0.09, 0.96), mcol, 5, 2, 14, 10))
+		_end_rank_header.text = "RANK %d / %d   •   %s %s MEDAL   •   %.1f%% EFFICIENCY" % [
+			int(eval_res.get("rank_num", 1)),
+			int(eval_res.get("rank_total", 50)),
+			String(eval_res.get("medal_stars", "★")),
+			String(eval_res.get("medal_id", "BRONZE")),
+			float(eval_res.get("efficiency_pct", 0.0)),
+		]
+		_end_rank_header.add_theme_color_override("font_color", mcol)
+		_end_rank_title.text = String(eval_res.get("rank_title", "Private"))
+		_end_rank_title.add_theme_color_override("font_color", Color.WHITE)
+		_end_new_best_lbl.visible = is_new_best
+		_end_summary.text = "%s  •  Difficulty: %s\nWaves Cleared: %d / %d   •   Hostiles Destroyed: %d   •   HQ Integrity: %d / %d\nCash: $%d   •   Bastion Assets: $%d   •   Net Valuation: $%d / $%d Max" % [
+			sector_name,
+			diff_name,
+			waves_cleared,
+			total_waves,
+			kills,
+			int(eval_res.get("lives", 0)),
+			int(eval_res.get("max_lives", 20)),
+			int(eval_res.get("cash", 0)),
+			int(eval_res.get("turrets_sell_value", 0)),
+			int(eval_res.get("net_worth", 0)),
+			int(eval_res.get("max_cash", 1)),
+		]
+	else:
+		_end_rank_panel.add_theme_stylebox_override("panel", _make_box(Color(0.15, 0.07, 0.07, 0.96), COL_RED, 5, 2, 14, 10))
+		_end_rank_header.text = "BADGE OF SHAME   •   COMMAND DEMOTION CITATION"
+		_end_rank_header.add_theme_color_override("font_color", COL_RED)
+		_end_rank_title.text = String(eval_res.get("shame_title", "Dishonorably Demoted to Sandbag"))
+		_end_rank_title.add_theme_color_override("font_color", Color(1.0, 0.84, 0.78))
+		_end_new_best_lbl.visible = false
+		_end_summary.text = "%s  •  Difficulty: %s\nWaves Cleared: %d / %d   •   Hostiles Destroyed: %d\nUnspent Cash: $%d   •   Bastion Assets Lost: $%d" % [
+			sector_name,
+			diff_name,
+			waves_cleared,
+			total_waves,
+			kills,
+			int(eval_res.get("cash", 0)),
+			int(eval_res.get("turrets_sell_value", 0)),
+		]
+
 	_end_next_btn.visible = (victory and has_next_sector)
 	if (not victory) and not secret_event.is_empty():
 		_secret_map_id = String(secret_event["map_id"])
@@ -719,6 +1678,99 @@ func show_end_screen(victory: bool, sector_name: String, waves_cleared: int, tot
 	else:
 		_secret_map_id = ""
 		_end_secret_btn.visible = false
+
+func update_wave_preview(visible_now: bool, next_wave_num: int, total_waves: int, wave_def: Dictionary) -> void:
+	if not visible_now or wave_def.is_empty():
+		_wave_preview_panel.visible = false
+		_last_preview_key = ""
+		return
+	_wave_preview_panel.visible = true
+	var pkey: String = "%d/%d:%s" % [next_wave_num, total_waves, String(wave_def.get("title", ""))]
+	if pkey == _last_preview_key:
+		return
+	_last_preview_key = pkey
+
+	_preview_wave_lbl.text = "NEXT W%02d:" % next_wave_num
+
+	# Aggregate counts & threat tags across groups
+	var counts: Dictionary = {}
+	var order: Array[int] = []
+	var has_air := false
+	var has_heavy := false
+	var has_shield := false
+	var has_uav := false
+	var has_boss := false
+	var total_units := 0
+
+	var groups: Array = wave_def.get("groups", [])
+	for g in groups:
+		var et: int = int(g["type"])
+		var cnt: int = int(g.get("count", 0))
+		if cnt <= 0:
+			continue
+		total_units += cnt
+		if not counts.has(et):
+			counts[et] = 0
+			order.append(et)
+		counts[et] = int(counts[et]) + cnt
+		var cfg := EnemyData.get_config(et as EnemyData.EnemyType)
+		if bool(cfg.get("is_air", false)):
+			has_air = true
+		if float(cfg.get("armor", 0.0)) >= 0.45:
+			has_heavy = true
+		if float(cfg.get("shield", 0.0)) > 0.0:
+			has_shield = true
+		if et == int(EnemyData.EnemyType.UAV_CARRIER):
+			has_uav = true
+		if et == int(EnemyData.EnemyType.JUGGERNAUT) or et == int(EnemyData.EnemyType.SKY_FORTRESS):
+			has_boss = true
+
+	# Rebuild compact colored threat tag pills
+	for c in _preview_tags_box.get_children():
+		c.queue_free()
+
+	var tags: Array[Array] = []
+	if has_boss:
+		tags.append(["BOSS", Color(0.98, 0.28, 0.24)])
+	if has_air:
+		tags.append(["AIR", Color(0.36, 0.86, 0.98)])
+	if has_shield:
+		tags.append(["SHIELD", Color(0.28, 0.78, 0.96)])
+	if has_uav:
+		tags.append(["UAV", Color(0.96, 0.68, 0.22)])
+	if has_heavy:
+		tags.append(["HEAVY", Color(0.96, 0.50, 0.24)])
+	if total_units >= 18 and not has_boss:
+		tags.append(["SWARM", Color(0.58, 0.92, 0.34)])
+
+	for t_item in tags:
+		var pill := PanelContainer.new()
+		var col: Color = t_item[1]
+		pill.add_theme_stylebox_override("panel", _make_box(col.darkened(0.75), col, 3, 1, 5, 1))
+		var lbl := Label.new()
+		lbl.text = String(t_item[0])
+		lbl.add_theme_font_size_override("font_size", 10)
+		lbl.add_theme_color_override("font_color", col.lightened(0.15))
+		pill.add_child(lbl)
+		_preview_tags_box.add_child(pill)
+
+	# Build compact unit count breakdown
+	var short_names: Dictionary = {
+		int(EnemyData.EnemyType.JEEP): "Humvee",
+		int(EnemyData.EnemyType.APC): "APC",
+		int(EnemyData.EnemyType.TANK): "Tank",
+		int(EnemyData.EnemyType.CHOPPER): "Gunship",
+		int(EnemyData.EnemyType.BOMBER): "Striker",
+		int(EnemyData.EnemyType.JUGGERNAUT): "Juggernaut",
+		int(EnemyData.EnemyType.APS_TANK): "APS Tank",
+		int(EnemyData.EnemyType.UAV_CARRIER): "UAV Carrier",
+		int(EnemyData.EnemyType.FPV_DRONE): "FPV",
+		int(EnemyData.EnemyType.SKY_FORTRESS): "Sky Fortress",
+	}
+	var parts: PackedStringArray = PackedStringArray()
+	for et in order:
+		parts.append("%dx %s" % [int(counts[et]), String(short_names.get(et, "Hostile"))])
+	_preview_units_lbl.text = ", ".join(parts)
 
 func show_wave_banner(text: String) -> void:
 	_banner_label.text = text
@@ -743,7 +1795,7 @@ func update_top_bar(sector_name: String, cash: int, lives: int, max_lives: int, 
 
 	_pause_btn.text = ">" if paused else "||"
 	_style_button_cached(_pause_btn, "paused" if paused else "run", COL_AMBER if paused else COL_BORDER)
-	_mute_btn.text = "MUTE" if muted else "SFX"
+	_mute_btn.text = "MUTED" if muted else "AUDIO"
 	_style_button_cached(_mute_btn, "muted" if muted else "unmuted", COL_RED if muted else COL_BORDER)
 
 	for spd_key in _speed_btns.keys():

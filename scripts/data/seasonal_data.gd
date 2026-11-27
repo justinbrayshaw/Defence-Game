@@ -4,7 +4,7 @@ extends RefCounted
 # Extensible registry of secret seasonal levels.
 # Add future seasonal events (Halloween, Easter, Summer, etc.) here!
 
-const RANDOM_INTERCEPT_CHANCE: float = 0.20
+const RANDOM_INTERCEPT_CHANCE: float = 0.05
 
 static func get_active_seasonal_event() -> Dictionary:
 	var dt: Dictionary = Time.get_datetime_dict_from_system()

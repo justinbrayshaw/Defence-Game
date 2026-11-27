@@ -5,6 +5,9 @@ const SAMPLE_RATE: int = 22050
 const POOL_SIZE: int = 18
 
 var muted: bool = false
+var sfx_muted: bool = false
+var master_muted: bool = false
+var sfx_volume: float = 0.85
 var master_volume_db: float = -6.0
 
 var _streams: Dictionary = {}
@@ -20,8 +23,11 @@ func _ready() -> void:
 		_players.append(p)
 	_generate_all_sfx()
 
+func is_silenced() -> bool:
+	return muted or master_muted or sfx_muted or sfx_volume <= 0.001
+
 func play(sound_name: String, volume_offset_db: float = 0.0, pitch_jitter: float = 0.06, min_interval: float = 0.03) -> void:
-	if muted:
+	if is_silenced():
 		return
 	if not _streams.has(sound_name):
 		return
@@ -34,12 +40,20 @@ func play(sound_name: String, volume_offset_db: float = 0.0, pitch_jitter: float
 	var player: AudioStreamPlayer = _players[_next_player]
 	_next_player = (_next_player + 1) % POOL_SIZE
 	player.stream = _streams[sound_name]
-	player.volume_db = master_volume_db + volume_offset_db
+	var base_db: float = linear_to_db(clampf(sfx_volume, 0.001, 1.0)) - 4.0
+	player.volume_db = base_db + volume_offset_db
 	player.pitch_scale = 1.0 + randf_range(-pitch_jitter, pitch_jitter)
 	player.play()
 
 func set_muted(value: bool) -> void:
 	muted = value
+	master_muted = value
+
+func set_audio_state(vol: float, muted_sfx: bool, muted_master: bool) -> void:
+	sfx_volume = clampf(vol, 0.0, 1.0)
+	sfx_muted = muted_sfx
+	master_muted = muted_master
+	muted = muted_master or muted_sfx
 
 func _generate_all_sfx() -> void:
 	_streams["vulcan"] = _make_vulcan()
