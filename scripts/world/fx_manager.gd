@@ -1,6 +1,9 @@
 class_name FxManager
 extends Node2D
 
+const MAX_PARTICLES: int = 360
+const MAX_RINGS: int = 48
+
 var _particles: Array[Dictionary] = []
 var _rings: Array[Dictionary] = []
 var _flashes: Array[Dictionary] = []
@@ -67,6 +70,8 @@ func spawn_muzzle_flash(pos: Vector2, angle: float, size: float = 12.0, color: C
 	})
 
 func spawn_shell_casing(pos: Vector2, eject_angle: float) -> void:
+	if _particles.size() >= MAX_PARTICLES:
+		return
 	var spd := randf_range(38.0, 74.0)
 	var ang := eject_angle + randf_range(-0.35, 0.35)
 	_particles.append({
@@ -85,6 +90,8 @@ func spawn_shell_casing(pos: Vector2, eject_angle: float) -> void:
 	})
 
 func spawn_smoke(pos: Vector2, size: float = 7.0, life: float = 0.55, darkness: float = 0.28) -> void:
+	if _particles.size() >= MAX_PARTICLES:
+		return
 	var drift := Vector2(randf_range(-14.0, 14.0), randf_range(-18.0, -6.0))
 	_particles.append({
 		"pos": pos + Vector2(randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)),
@@ -100,6 +107,8 @@ func spawn_smoke(pos: Vector2, size: float = 7.0, life: float = 0.55, darkness: 
 	})
 
 func spawn_dust(pos: Vector2, size: float = 5.0, life: float = 0.48) -> void:
+	if _particles.size() >= MAX_PARTICLES:
+		return
 	var drift := Vector2(randf_range(-8.0, 8.0), randf_range(-8.0, 8.0))
 	_particles.append({
 		"pos": pos + Vector2(randf_range(-2.5, 2.5), randf_range(-2.5, 2.5)),
@@ -115,6 +124,8 @@ func spawn_dust(pos: Vector2, size: float = 5.0, life: float = 0.48) -> void:
 	})
 
 func spawn_contrail(pos: Vector2, size: float = 2.6, life: float = 0.42) -> void:
+	if _particles.size() >= MAX_PARTICLES:
+		return
 	_particles.append({
 		"pos": pos,
 		"vel": Vector2.ZERO,
@@ -401,6 +412,11 @@ func _process(delta: float) -> void:
 			_pending_fireworks.remove_at(i)
 
 	var active := airstrike_aiming or drone_assign_aiming or had_beams or not _beams.is_empty() or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty() or not _pending_fireworks.is_empty()
+
+	if _particles.size() > MAX_PARTICLES:
+		_particles = _particles.slice(_particles.size() - MAX_PARTICLES)
+	if _rings.size() > MAX_RINGS:
+		_rings = _rings.slice(_rings.size() - MAX_RINGS)
 
 	for i in range(_particles.size() - 1, -1, -1):
 		var p := _particles[i]

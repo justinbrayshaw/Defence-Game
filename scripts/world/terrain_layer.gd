@@ -3,7 +3,15 @@ extends Node2D
 
 const MASK_W: int = 200
 const MASK_H: int = 120
-const TERRAIN_SHADER: Shader = preload("res://shaders/terrain.gdshader")
+const TERRAIN_BAKE_SHADER: Shader = preload("res://shaders/terrain_bake.gdshader")
+const TERRAIN_LIVE_SHADER: Shader = preload("res://shaders/terrain_live.gdshader")
+
+class _DrawRelay extends Node2D:
+	var draw_cb: Callable
+
+	func _draw() -> void:
+		if draw_cb.is_valid():
+			draw_cb.call(self)
 
 var _mask_cache: Dictionary = {} # map_id -> ImageTexture
 
@@ -47,8 +55,28 @@ var _gift_piles: Array[Dictionary] = []
 var _lanterns: Array[Vector2] = []
 var _sandbags: Array[Dictionary] = []
 var _bunkers: Array[Dictionary] = []
+var _bake_viewport: SubViewport
+var _bake_rect: ColorRect
 var _bg_rect: ColorRect
+var _dynamic_under: _DrawRelay
+var _dynamic_over: _DrawRelay
 var _mask_tex: ImageTexture
+
+func _enter_tree() -> void:
+	if _bake_viewport != null and is_instance_valid(_bake_viewport) and not map_data.is_empty():
+		_bake_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+
+func _ensure_dynamic_layers() -> void:
+	if _dynamic_under == null or not is_instance_valid(_dynamic_under):
+		_dynamic_under = _DrawRelay.new()
+		_dynamic_under.z_index = -2
+		_dynamic_under.draw_cb = _draw_dynamic_under
+		add_child(_dynamic_under)
+	if _dynamic_over == null or not is_instance_valid(_dynamic_over):
+		_dynamic_over = _DrawRelay.new()
+		_dynamic_over.z_index = 2
+		_dynamic_over.draw_cb = _draw_dynamic_over
+		add_child(_dynamic_over)
 
 func setup(data: Dictionary) -> void:
 	map_data = data
@@ -64,8 +92,11 @@ func setup(data: Dictionary) -> void:
 	_is_outback = (biome == "outback")
 	_bake_map_mask()
 	_setup_shader_background()
+	_ensure_dynamic_layers()
 	_generate_props()
 	queue_redraw()
+	_dynamic_under.queue_redraw()
+	_dynamic_over.queue_redraw()
 
 func _get_bridges() -> Array[Dictionary]:
 	var raw: Array = []
@@ -267,27 +298,68 @@ func _pack_bridge_vec4(bridges: Array[Dictionary], index: int) -> Vector4:
 
 func _setup_shader_background() -> void:
 	var target_size := Vector2(float(map_data["width"]), float(map_data["height"]))
+	var vp_size := Vector2i(int(target_size.x), int(target_size.y))
+	if _bake_viewport == null or not is_instance_valid(_bake_viewport):
+		_bake_viewport = SubViewport.new()
+		_bake_viewport.disable_3d = true
+		_bake_viewport.transparent_bg = false
+		_bake_viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR
+		_bake_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+		_bake_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_bake_viewport.size = vp_size
+		add_child(_bake_viewport)
+
+		_bake_rect = ColorRect.new()
+		_bake_rect.position = Vector2.ZERO
+		_bake_rect.size = target_size
+		_bake_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if TERRAIN_BAKE_SHADER != null:
+			var bmat := ShaderMaterial.new()
+			bmat.shader = TERRAIN_BAKE_SHADER
+			_bake_rect.material = bmat
+		_bake_viewport.add_child(_bake_rect)
+
+	if _bake_viewport.size != vp_size:
+		_bake_viewport.size = vp_size
+	_bake_rect.size = target_size
+
 	if _bg_rect == null or not is_instance_valid(_bg_rect):
 		_bg_rect = ColorRect.new()
 		_bg_rect.position = Vector2.ZERO
 		_bg_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_bg_rect.z_index = -5
-		if TERRAIN_SHADER != null:
+		if TERRAIN_LIVE_SHADER != null:
 			var mat := ShaderMaterial.new()
-			mat.shader = TERRAIN_SHADER
+			mat.shader = TERRAIN_LIVE_SHADER
 			_bg_rect.material = mat
 		add_child(_bg_rect)
 
 	_bg_rect.size = target_size
+	var bridges: Array[Dictionary] = _get_bridges()
+	var b1: Vector4 = _pack_bridge_vec4(bridges, 0)
+	var b2: Vector4 = _pack_bridge_vec4(bridges, 1)
+	var b3: Vector4 = _pack_bridge_vec4(bridges, 2)
+	var biome_id: int = int(map_data.get("biome_id", 0))
+
+	var bmat: ShaderMaterial = _bake_rect.material as ShaderMaterial
+	if bmat != null:
+		bmat.set_shader_parameter("map_mask", _mask_tex)
+		bmat.set_shader_parameter("map_size", target_size)
+		bmat.set_shader_parameter("bridge_1", b1)
+		bmat.set_shader_parameter("bridge_2", b2)
+		bmat.set_shader_parameter("bridge_3", b3)
+		bmat.set_shader_parameter("biome_type", biome_id)
+		_bake_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+
 	var smat: ShaderMaterial = _bg_rect.material as ShaderMaterial
 	if smat != null:
-		var bridges: Array[Dictionary] = _get_bridges()
+		smat.set_shader_parameter("baked_terrain", _bake_viewport.get_texture())
 		smat.set_shader_parameter("map_mask", _mask_tex)
 		smat.set_shader_parameter("map_size", target_size)
-		smat.set_shader_parameter("bridge_1", _pack_bridge_vec4(bridges, 0))
-		smat.set_shader_parameter("bridge_2", _pack_bridge_vec4(bridges, 1))
-		smat.set_shader_parameter("bridge_3", _pack_bridge_vec4(bridges, 2))
-		smat.set_shader_parameter("biome_type", int(map_data.get("biome_id", 0)))
+		smat.set_shader_parameter("bridge_1", b1)
+		smat.set_shader_parameter("bridge_2", b2)
+		smat.set_shader_parameter("bridge_3", b3)
+		smat.set_shader_parameter("biome_type", biome_id)
 	else:
 		_bg_rect.color = Color(0.66, 0.72, 0.78) if _is_tundra else (Color(0.45, 0.36, 0.24) if _is_desert else Color(0.22, 0.25, 0.18))
 
@@ -1004,26 +1076,29 @@ func _make_oak(pos: Vector2, radius: float, rng: RandomNumberGenerator, kind: St
 
 func _process(delta: float) -> void:
 	_time += delta
-	if not map_data.is_empty():
-		var w: float = float(map_data["width"])
-		var h: float = float(map_data["height"])
-		if _is_tundra or _is_christmas or _biome == "europa":
-			for sf in _snowflakes:
-				sf["x"] = fposmod(float(sf["x"]) + float(sf["vx"]) * delta, w)
-				sf["y"] = fposmod(float(sf["y"]) + float(sf["vy"]) * delta, h)
-		if not _ambient_motes.is_empty():
-			for mt in _ambient_motes:
-				mt["x"] = fposmod(float(mt["x"]) + float(mt["vx"]) * delta, w)
-				mt["y"] = fposmod(float(mt["y"]) + float(mt["vy"]) * delta, h)
-	queue_redraw()
+	if map_data.is_empty():
+		return
+	var w: float = float(map_data["width"])
+	var h: float = float(map_data["height"])
+	if not _snowflakes.is_empty():
+		for sf in _snowflakes:
+			sf["x"] = fposmod(float(sf["x"]) + float(sf["vx"]) * delta, w)
+			sf["y"] = fposmod(float(sf["y"]) + float(sf["vy"]) * delta, h)
+	if not _ambient_motes.is_empty():
+		for mt in _ambient_motes:
+			mt["x"] = fposmod(float(mt["x"]) + float(mt["vx"]) * delta, w)
+			mt["y"] = fposmod(float(mt["y"]) + float(mt["vy"]) * delta, h)
+	if not _ice_floes.is_empty() and _dynamic_under != null:
+		_dynamic_under.queue_redraw()
+	if _dynamic_over != null:
+		_dynamic_over.queue_redraw()
 
 func _draw() -> void:
+	# Static layer: drawn ONCE per sector load and retained by Godot's RenderingServer.
 	if map_data.is_empty():
 		return
 	_draw_road_markings()
 	_draw_shore_stones()
-	if _is_tundra or _is_christmas or _biome == "europa":
-		_draw_ice_floes()
 	_draw_bridges()
 	_draw_air_corridor_hint()
 	_draw_bunkers()
@@ -1031,13 +1106,12 @@ func _draw() -> void:
 	_draw_logs()
 	_draw_rocks()
 	_draw_hay_bales()
-	_draw_pads()
+	_draw_pads_static()
 	if _is_christmas:
 		_draw_santa_workshop()
 		_draw_christmas_props()
 	else:
 		_draw_hq_fortress()
-	_draw_spawn_markers()
 	_draw_buildings()
 	if not _domes.is_empty():
 		_draw_domes()
@@ -1051,10 +1125,33 @@ func _draw() -> void:
 		_draw_trees()
 	if not _oaks.is_empty():
 		_draw_oaks()
-	if _is_tundra or _is_christmas or _biome == "europa":
-		_draw_snowfall()
+
+func _draw_dynamic_under(ci: Node2D) -> void:
+	if map_data.is_empty():
+		return
+	if not _ice_floes.is_empty():
+		_draw_ice_floes(ci)
+
+func _draw_dynamic_over(ci: Node2D) -> void:
+	if map_data.is_empty():
+		return
+	if _is_christmas or _biome == "cyberpunk" or _biome == "alien":
+		_draw_bridge_lights_dynamic(ci)
+	_draw_pads_dynamic(ci)
+	if _is_christmas:
+		_draw_santa_workshop_dynamic(ci)
+		_draw_christmas_dynamic(ci)
+	else:
+		_draw_hq_dynamic(ci)
+	_draw_spawn_markers(ci)
+	if _biome == "cyberpunk":
+		_draw_buildings_dynamic(ci)
+	if not _crystals.is_empty():
+		_draw_crystals_dynamic(ci)
+	if not _snowflakes.is_empty():
+		_draw_snowfall(ci)
 	if not _ambient_motes.is_empty():
-		_draw_ambient_motes()
+		_draw_ambient_motes(ci)
 
 func _point_over_any_bridge(p: Vector2) -> bool:
 	for b in _get_bridges():
@@ -1110,15 +1207,19 @@ func _draw_shore_stones() -> void:
 		if is_wet:
 			draw_circle(p + Vector2(-1.8, -1.8), 1.4, Color(0.88, 0.94, 0.98, 0.38))
 
-func _draw_ice_floes() -> void:
+func _draw_ice_floes(ci: Node2D) -> void:
 	for floe in _ice_floes:
 		var base_p: Vector2 = floe["pos"]
 		var bob: float = sin(_time * 1.4 + float(floe["bob_phase"])) * 1.6
 		var p: Vector2 = base_p + Vector2(bob * 0.4, bob)
 		var verts: PackedVector2Array = floe["verts"]
-		draw_colored_polygon(_offset_poly(verts, p + Vector2(2.0, 2.5)), Color(0.02, 0.10, 0.16, 0.42))
-		draw_colored_polygon(_offset_poly(verts, p), Color(0.66, 0.82, 0.92, 0.82))
-		draw_colored_polygon(_scale_offset_poly(verts, 0.72, p + Vector2(-1.0, -1.0)), Color(0.88, 0.94, 0.98, 0.90))
+		ci.draw_set_transform(p + Vector2(2.0, 2.5), 0.0)
+		ci.draw_colored_polygon(verts, Color(0.02, 0.10, 0.16, 0.42))
+		ci.draw_set_transform(p, 0.0)
+		ci.draw_colored_polygon(verts, Color(0.66, 0.82, 0.92, 0.82))
+		ci.draw_set_transform(p + Vector2(-1.0, -1.0), 0.0, Vector2(0.72, 0.72))
+		ci.draw_colored_polygon(verts, Color(0.88, 0.94, 0.98, 0.90))
+	ci.draw_set_transform(Vector2.ZERO, 0.0)
 
 func _draw_bridges() -> void:
 	for b in _get_bridges():
@@ -1182,34 +1283,43 @@ func _draw_single_bridge(bp: Vector2, ang: float = 0.0) -> void:
 		for y_step in range(-28, 28, 12):
 			draw_line(Vector2(hx, float(y_step)), Vector2(hx, float(y_step) + 6.0), Color(0.92, 0.72, 0.20, 0.88), 3.0)
 
-	# Festive fairy-light garlands & glowing futuristic side rails!
-	if _is_christmas:
-		var bulb_cols: Array[Color] = [
-			Color(1.0, 0.24, 0.24), Color(1.0, 0.88, 0.26),
-			Color(0.24, 0.96, 0.46), Color(0.38, 0.86, 1.0)
-		]
-		for bx_i in range(9):
-			var lx: float = lerpf(-half_w + 4.0, half_w - 4.0, float(bx_i) / 8.0)
-			var tw: float = 0.55 + 0.45 * sin(_time * 5.2 + float(bx_i) * 1.1)
-			var c: Color = bulb_cols[bx_i % bulb_cols.size()]
-			for ry: float in [-half_h - 3.0, half_h + 3.0]:
-				draw_circle(Vector2(lx, ry), 5.2, Color(c.r, c.g, c.b, 0.24 * tw))
-				draw_circle(Vector2(lx, ry), 2.3, Color(c.r, c.g, c.b, 0.95 * tw))
-	elif _biome == "cyberpunk" or _biome == "alien":
-		var glow_a := Color(0.10, 0.95, 1.0) if _biome == "cyberpunk" else Color(0.94, 0.24, 0.98)
-		var glow_b := Color(1.0, 0.16, 0.72) if _biome == "cyberpunk" else Color(0.18, 0.96, 0.94)
-		var pulse_n: float = 0.72 + 0.28 * sin(_time * 4.2)
-		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(glow_a.r, glow_a.g, glow_a.b, 0.35 * pulse_n), 6.0, true)
-		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), glow_a, 2.2, true)
-		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(glow_b.r, glow_b.g, glow_b.b, 0.35 * pulse_n), 6.0, true)
-		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), glow_b, 2.2, true)
-	elif _biome == "volcanic":
+	# Static futuristic side rails (animated Christmas fairy lights & Cyberpunk/Alien pulsing rails draw in _dynamic_over)
+	if _biome == "volcanic":
 		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(1.0, 0.48, 0.08, 0.85), 2.4, true)
 		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(1.0, 0.48, 0.08, 0.85), 2.4, true)
 	elif _biome == "moon" or _biome == "europa":
 		draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(0.88, 0.94, 1.0, 0.85), 2.4, true)
 		draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(0.88, 0.94, 1.0, 0.85), 2.4, true)
 	draw_set_transform(Vector2.ZERO, 0.0)
+
+func _draw_bridge_lights_dynamic(ci: Node2D) -> void:
+	var half_w: float = 68.0
+	var half_h: float = MapData.ROAD_WIDTH * 0.58
+	for b in _get_bridges():
+		var bp: Vector2 = b["pos"]
+		var ang: float = float(b["angle"])
+		ci.draw_set_transform(bp, ang)
+		if _is_christmas:
+			var bulb_cols: Array[Color] = [
+				Color(1.0, 0.24, 0.24), Color(1.0, 0.88, 0.26),
+				Color(0.24, 0.96, 0.46), Color(0.38, 0.86, 1.0)
+			]
+			for bx_i in range(9):
+				var lx: float = lerpf(-half_w + 4.0, half_w - 4.0, float(bx_i) / 8.0)
+				var tw: float = 0.55 + 0.45 * sin(_time * 5.2 + float(bx_i) * 1.1)
+				var c: Color = bulb_cols[bx_i % bulb_cols.size()]
+				for ry: float in [-half_h - 3.0, half_h + 3.0]:
+					ci.draw_circle(Vector2(lx, ry), 5.2, Color(c.r, c.g, c.b, 0.24 * tw))
+					ci.draw_circle(Vector2(lx, ry), 2.3, Color(c.r, c.g, c.b, 0.95 * tw))
+		elif _biome == "cyberpunk" or _biome == "alien":
+			var glow_a := Color(0.10, 0.95, 1.0) if _biome == "cyberpunk" else Color(0.94, 0.24, 0.98)
+			var glow_b := Color(1.0, 0.16, 0.72) if _biome == "cyberpunk" else Color(0.18, 0.96, 0.94)
+			var pulse_n: float = 0.72 + 0.28 * sin(_time * 4.2)
+			ci.draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), Color(glow_a.r, glow_a.g, glow_a.b, 0.35 * pulse_n), 6.0, true)
+			ci.draw_line(Vector2(-half_w, -half_h - 3.0), Vector2(half_w, -half_h - 3.0), glow_a, 2.2, true)
+			ci.draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), Color(glow_b.r, glow_b.g, glow_b.b, 0.35 * pulse_n), 6.0, true)
+			ci.draw_line(Vector2(-half_w, half_h + 3.0), Vector2(half_w, half_h + 3.0), glow_b, 2.2, true)
+	ci.draw_set_transform(Vector2.ZERO, 0.0)
 
 func _draw_air_corridor_hint() -> void:
 	var air: PackedVector2Array = map_data["air_path"]
@@ -1324,16 +1434,13 @@ func _draw_rocks() -> void:
 		draw_colored_polygon(_scale_offset_poly(verts, 0.50, p + Vector2(-3.0, -3.0)), c_lit)
 		draw_line(p + Vector2(-4.0, 1.0), p + Vector2(3.5, -2.5), Color(0.12, 0.14, 0.17, 0.55), 1.2, true)
 
-func _draw_pads() -> void:
+func _draw_pads_static() -> void:
 	var pads: Array = map_data["pads"]
-	var pulse: float = 0.5 + 0.5 * sin(_time * 4.5)
 	var pad_base := Color(0.30, 0.27, 0.22, 0.96) if _is_desert else (Color(0.24, 0.28, 0.33, 0.96) if _is_tundra else Color(0.22, 0.23, 0.20, 0.96))
 	var pad_top := Color(0.41, 0.37, 0.30, 0.96) if _is_desert else (Color(0.40, 0.45, 0.50, 0.96) if _is_tundra else Color(0.32, 0.33, 0.29, 0.96))
 
 	for idx in range(pads.size()):
 		var pos: Vector2 = pads[idx]
-		var occupied: bool = occupied_pads.has(idx)
-		var is_hovered: bool = (idx == hovered_pad_index)
 
 		draw_circle(pos + Vector2(3.5, 4.2), 27.0, Color(0.06, 0.12, 0.22, 0.34) if _is_tundra else Color(0.0, 0.0, 0.0, 0.34))
 		draw_circle(pos, 26.5, Color(0.11, 0.12, 0.14, 0.40))
@@ -1375,26 +1482,33 @@ func _draw_pads() -> void:
 				var dot_c := Color(0.96, 0.20, 0.22) if (w_i % 2 == 0) else Color(1.0, 0.86, 0.28)
 				draw_circle(wp, 1.9, dot_c)
 
-		if not occupied:
-			if placement_active:
-				var ring_col := Color(0.24, 0.94, 0.46, 0.62 + pulse * 0.34) if placement_affordable else Color(0.92, 0.28, 0.24, 0.62 + pulse * 0.32)
-				if is_hovered:
-					var fill_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.13) if placement_affordable else Color(0.95, 0.22, 0.22, 0.13)
-					var edge_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.82) if placement_affordable else Color(0.95, 0.28, 0.24, 0.84)
-					draw_circle(pos, placement_range, fill_col)
-					draw_arc(pos, placement_range, 0.0, TAU, 72, edge_col, 2.2, true)
-					draw_circle(pos, 24.0, Color(ring_col.r, ring_col.g, ring_col.b, 0.26))
-					draw_arc(pos, 26.2, 0.0, TAU, 36, ring_col, 2.8, true)
-				else:
-					draw_circle(pos, 17.5, Color(ring_col.r, ring_col.g, ring_col.b, 0.14 + pulse * 0.08))
-					draw_arc(pos, 22.5, 0.0, TAU, 32, ring_col, 2.2, true)
-				draw_line(pos + Vector2(-7, 0), pos + Vector2(7, 0), ring_col, 1.6)
-				draw_line(pos + Vector2(0, -7), pos + Vector2(0, 7), ring_col, 1.6)
+func _draw_pads_dynamic(ci: Node2D) -> void:
+	var pads: Array = map_data["pads"]
+	var pulse: float = 0.5 + 0.5 * sin(_time * 4.5)
+	for idx in range(pads.size()):
+		if occupied_pads.has(idx):
+			continue
+		var pos: Vector2 = pads[idx]
+		var is_hovered: bool = (idx == hovered_pad_index)
+		if placement_active:
+			var ring_col := Color(0.24, 0.94, 0.46, 0.62 + pulse * 0.34) if placement_affordable else Color(0.92, 0.28, 0.24, 0.62 + pulse * 0.32)
+			if is_hovered:
+				var fill_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.13) if placement_affordable else Color(0.95, 0.22, 0.22, 0.13)
+				var edge_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.82) if placement_affordable else Color(0.95, 0.28, 0.24, 0.84)
+				ci.draw_circle(pos, placement_range, fill_col)
+				ci.draw_arc(pos, placement_range, 0.0, TAU, 72, edge_col, 2.2, true)
+				ci.draw_circle(pos, 24.0, Color(ring_col.r, ring_col.g, ring_col.b, 0.26))
+				ci.draw_arc(pos, 26.2, 0.0, TAU, 36, ring_col, 2.8, true)
 			else:
-				var idle_alpha: float = 0.68 if is_hovered else 0.38
-				var idle_col := Color(0.26, 0.86, 0.46, idle_alpha)
-				draw_arc(pos, 21.8, 0.0, TAU, 32, idle_col, 1.8 if not is_hovered else 2.4, true)
-				draw_circle(pos, 2.8, Color(0.26, 0.86, 0.46, idle_alpha * 0.9))
+				ci.draw_circle(pos, 17.5, Color(ring_col.r, ring_col.g, ring_col.b, 0.14 + pulse * 0.08))
+				ci.draw_arc(pos, 22.5, 0.0, TAU, 32, ring_col, 2.2, true)
+			ci.draw_line(pos + Vector2(-7, 0), pos + Vector2(7, 0), ring_col, 1.6)
+			ci.draw_line(pos + Vector2(0, -7), pos + Vector2(0, 7), ring_col, 1.6)
+		else:
+			var idle_alpha: float = 0.68 if is_hovered else 0.38
+			var idle_col := Color(0.26, 0.86, 0.46, idle_alpha)
+			ci.draw_arc(pos, 21.8, 0.0, TAU, 32, idle_col, 1.8 if not is_hovered else 2.4, true)
+			ci.draw_circle(pos, 2.8, Color(0.26, 0.86, 0.46, idle_alpha * 0.9))
 
 func _draw_hq_fortress() -> void:
 	var bp: Vector2 = map_data["base_pos"]
@@ -1430,22 +1544,26 @@ func _draw_hq_fortress() -> void:
 	draw_circle(radar_pos + Vector2(2.0, 2.5), 16.5, Color(0.0, 0.0, 0.0, 0.38))
 	draw_circle(radar_pos, 16.5, Color(0.13, 0.17, 0.16))
 	draw_arc(radar_pos, 16.5, 0.0, TAU, 32, Color(0.34, 0.88, 0.50, 0.66), 1.6, true)
+
+func _draw_hq_dynamic(ci: Node2D) -> void:
+	var bp: Vector2 = map_data["base_pos"]
+	var radar_pos := bp + Vector2(6.0, -16.0)
 	var sweep: float = _time * 1.95
 	var cone := PackedVector2Array([radar_pos])
 	for s in range(7):
 		var ca: float = sweep - float(s) * 0.11
 		cone.append(radar_pos + Vector2.from_angle(ca) * 15.5)
-	draw_colored_polygon(cone, Color(0.32, 0.94, 0.52, 0.26))
+	ci.draw_colored_polygon(cone, Color(0.32, 0.94, 0.52, 0.26))
 	var dish_dir := Vector2.from_angle(sweep)
 	var dish_perp := Vector2(-dish_dir.y, dish_dir.x)
-	draw_line(radar_pos, radar_pos + dish_dir * 14.0, Color(0.50, 0.98, 0.62, 0.92), 2.0, true)
-	draw_line(radar_pos - dish_perp * 10.0, radar_pos + dish_perp * 10.0, Color(0.74, 0.78, 0.78), 3.4, true)
+	ci.draw_line(radar_pos, radar_pos + dish_dir * 14.0, Color(0.50, 0.98, 0.62, 0.92), 2.0, true)
+	ci.draw_line(radar_pos - dish_perp * 10.0, radar_pos + dish_perp * 10.0, Color(0.74, 0.78, 0.78), 3.4, true)
 
 	var blink: float = 0.45 + 0.55 * sin(_time * 5.0)
-	draw_circle(bp + Vector2(-15, -32), 3.2, Color(0.25, 0.96, 0.46, blink))
-	draw_circle(bp + Vector2(-15, 32), 3.2, Color(0.25, 0.96, 0.46, blink))
+	ci.draw_circle(bp + Vector2(-15, -32), 3.2, Color(0.25, 0.96, 0.46, blink))
+	ci.draw_circle(bp + Vector2(-15, 32), 3.2, Color(0.25, 0.96, 0.46, blink))
 
-func _draw_spawn_markers() -> void:
+func _draw_spawn_markers(ci: Node2D) -> void:
 	var spawns: Array = map_data["spawn_positions"]
 	var g_paths: Array = map_data["ground_paths"]
 	var asp: Vector2 = map_data["air_spawn_pos"]
@@ -1470,7 +1588,7 @@ func _draw_spawn_markers() -> void:
 				c + dir * 6.0,
 				c - dir * 6.0 + perp * 12.0,
 			])
-			draw_polyline(pts, Color(0.95, 0.40, 0.20, clampf(alpha, 0.0, 1.0)), 2.8, true)
+			ci.draw_polyline(pts, Color(0.95, 0.40, 0.20, clampf(alpha, 0.0, 1.0)), 2.8, true)
 
 	var air_dir: Vector2 = (Vector2(map_data["air_path"][1]) - Vector2(map_data["air_path"][0])).normalized()
 	var air_perp := Vector2(-air_dir.y, air_dir.x)
@@ -1482,7 +1600,7 @@ func _draw_spawn_markers() -> void:
 		ap - air_dir * 6.0 + air_perp * 9.0,
 	])
 	var air_col := Color(0.14, 0.54, 0.84, a_alpha) if _is_tundra else Color(0.45, 0.85, 0.98, a_alpha)
-	draw_polyline(air_pts, air_col, 2.4, true)
+	ci.draw_polyline(air_pts, air_col, 2.4, true)
 
 func _offset_poly(poly: PackedVector2Array, offset: Vector2) -> PackedVector2Array:
 	var out := PackedVector2Array()
@@ -1518,19 +1636,7 @@ func _draw_trees() -> void:
 				draw_circle(pos + boff + Vector2(-1.4, -1.4), br * 0.50, Color(0.84, 0.90, 0.96, 0.72))
 			draw_colored_polygon(_offset_poly(mid_poly, pos + Vector2(-1.5, -1.5)), Color(0.13 * s, 0.36 * s, 0.19 * s))
 			draw_colored_polygon(_offset_poly(top_poly, pos + Vector2(-2.4, -2.4)), Color(0.82, 0.89, 0.95, 0.78))
-			# Twinkling ornaments around the tree
-			var r_tree: float = float(t["radius"])
-			var orn_cols: Array[Color] = [
-				Color(1.0, 0.22, 0.24), Color(1.0, 0.86, 0.26),
-				Color(0.30, 0.88, 1.0), Color(0.96, 0.36, 0.82)
-			]
-			for o_i in range(4):
-				var oa: float = float(o_i) * (TAU * 0.25) + pos.x * 0.1
-				var op: Vector2 = pos + Vector2.from_angle(oa) * (r_tree * 0.56)
-				var oc: Color = orn_cols[o_i]
-				var tw: float = 0.62 + 0.38 * sin(_time * 4.5 + pos.y * 0.05 + float(o_i) * 1.4)
-				draw_circle(op, 2.2, Color(oc.r, oc.g, oc.b, tw))
-			# Glowing golden star topper!
+			# Glowing golden star topper (twinkling ornaments draw in _dynamic_over)
 			var sp := pos + Vector2(-2.8, -2.8)
 			draw_circle(sp, 5.0, Color(1.0, 0.88, 0.30, 0.26))
 			draw_circle(sp, 2.4, Color(1.0, 0.92, 0.42, 0.96))
@@ -1623,17 +1729,17 @@ func _draw_palms() -> void:
 		draw_circle(pos, 3.2, Color(0.28, 0.21, 0.13))
 		draw_circle(pos + Vector2(-0.8, -0.8), 1.5, Color(0.42, 0.34, 0.20))
 
-func _draw_snowfall() -> void:
+func _draw_snowfall(ci: Node2D) -> void:
 	for sf in _snowflakes:
 		var p := Vector2(float(sf["x"]), float(sf["y"]))
 		var r: float = float(sf["r"])
 		var a: float = float(sf["alpha"])
 		var is_gold: bool = bool(sf.get("gold", false))
 		var col := Color(1.0, 0.90, 0.46, a) if is_gold else Color(0.95, 0.98, 1.0, a)
-		draw_circle(p, r, col)
+		ci.draw_circle(p, r, col)
 
 func _draw_santa_workshop() -> void:
-	# SANTA'S NORTH POLE WORKSHOP & GIFT VAULT (Cozy festive timber lodge HQ!)
+	# SANTA'S NORTH POLE WORKSHOP & GIFT VAULT (static lodge base; animated smoke/star/lights draw in _dynamic_over)
 	var bp: Vector2 = map_data["base_pos"]
 	var red := Color(0.76, 0.15, 0.18)
 	var red_lit := Color(0.90, 0.24, 0.24)
@@ -1641,55 +1747,53 @@ func _draw_santa_workshop() -> void:
 	var snow := Color(0.90, 0.94, 0.98)
 	var gold := Color(1.0, 0.86, 0.30)
 
-	# Warm golden ambient lantern glow on the courtyard snow
 	draw_circle(bp, 82.0, Color(1.0, 0.78, 0.30, 0.14))
-	# Deep shadow
 	draw_rect(Rect2(bp + Vector2(-46, -58), Vector2(110, 134)), Color(0.05, 0.10, 0.22, 0.42))
-	# Snow-rimmed cobblestone courtyard apron
 	draw_rect(Rect2(bp + Vector2(-52, -64), Vector2(104, 128)), Color(0.56, 0.44, 0.38))
 	draw_rect(Rect2(bp + Vector2(-48, -60), Vector2(96, 120)), Color(0.36, 0.28, 0.24))
 
-	# Candy-cane entrance posts on west courtyard gate
 	for gy: float in [-46.0, 46.0]:
 		draw_circle(bp + Vector2(-48.0, gy), 6.0, red)
 		draw_circle(bp + Vector2(-48.0, gy), 3.4, snow)
 		draw_circle(bp + Vector2(-48.0, gy), 1.6, gold)
 
-	# Cozy timber Workshop main lodge & festive pitched crimson roof!
 	draw_rect(Rect2(bp + Vector2(-22, -46), Vector2(66, 96)), Color(0.05, 0.08, 0.16, 0.40))
 	draw_rect(Rect2(bp + Vector2(-28, -50), Vector2(66, 100)), wood)
-	# Pitched red shingle roof (north slope lit, south slope slightly shaded)
 	draw_rect(Rect2(bp + Vector2(-25, -47), Vector2(60, 47)), red_lit)
 	draw_rect(Rect2(bp + Vector2(-25, 0), Vector2(60, 47)), red)
-	# Snowdrifts along roof ridge & eaves
 	draw_rect(Rect2(bp + Vector2(-26, -48), Vector2(62, 6)), snow)
 	draw_rect(Rect2(bp + Vector2(-26, 42), Vector2(62, 6)), snow)
 	draw_line(bp + Vector2(-24, 0), bp + Vector2(34, 0), snow, 4.5, true)
 
-	# Glowing golden frosted Workshop windows along the west wall
 	for wy: float in [-30.0, -10.0, 10.0, 30.0]:
 		draw_circle(bp + Vector2(-28.0, wy), 8.5, Color(1.0, 0.84, 0.32, 0.28))
 		draw_rect(Rect2(bp + Vector2(-29.0, wy - 4.0), Vector2(5.0, 8.0)), Color(1.0, 0.90, 0.48))
 
-	# Brick chimney puffing cozy white animated smoke rings!
 	var ch_pos := bp + Vector2(18.0, -28.0)
 	draw_rect(Rect2(ch_pos - Vector2(6, 6), Vector2(12, 12)), Color(0.55, 0.22, 0.18))
 	draw_rect(Rect2(ch_pos - Vector2(4, 4), Vector2(8, 8)), Color(0.16, 0.14, 0.14))
+
+func _draw_santa_workshop_dynamic(ci: Node2D) -> void:
+	var bp: Vector2 = map_data["base_pos"]
+	var gold := Color(1.0, 0.86, 0.30)
+
+	# Brick chimney animated smoke rings
+	var ch_pos := bp + Vector2(18.0, -28.0)
 	for k in range(3):
 		var ph: float = fmod(_time * 0.55 + float(k) * 0.33, 1.0)
 		var sp := ch_pos + Vector2(ph * 18.0, -ph * 22.0)
-		draw_circle(sp, lerpf(3.5, 10.5, ph), Color(0.95, 0.97, 1.0, (1.0 - ph) * 0.48))
+		ci.draw_circle(sp, lerpf(3.5, 10.5, ph), Color(0.95, 0.97, 1.0, (1.0 - ph) * 0.48))
 
-	# Giant spinning golden North Star beacon on top of Santa's Workshop!
+	# Spinning golden North Star beacon
 	var star_c := bp + Vector2(4.0, 16.0)
-	draw_circle(star_c, 16.0, Color(1.0, 0.88, 0.32, 0.24))
+	ci.draw_circle(star_c, 16.0, Color(1.0, 0.88, 0.32, 0.24))
 	var star := PackedVector2Array()
 	for s in range(10):
 		var sa: float = float(s) * (TAU / 10.0) + _time * 1.1
 		var sr: float = 12.5 if (s % 2 == 0) else 5.2
 		star.append(star_c + Vector2(cos(sa) * sr, sin(sa) * sr))
-	draw_colored_polygon(star, gold)
-	draw_circle(star_c, 3.6, Color(1.0, 0.98, 0.86))
+	ci.draw_colored_polygon(star, gold)
+	ci.draw_circle(star_c, 3.6, Color(1.0, 0.98, 0.86))
 
 	# Twinkling fairy lights outlining the Workshop eaves
 	var lights: Array[Color] = [Color(1.0, 0.24, 0.24), Color(0.24, 0.96, 0.46), gold, Color(0.40, 0.88, 1.0)]
@@ -1697,14 +1801,11 @@ func _draw_santa_workshop() -> void:
 		var ly: float = bp.y + lerpf(-44.0, 44.0, float(i) / 5.0)
 		var lc: Color = lights[i % lights.size()]
 		var tw: float = 0.55 + 0.45 * sin(_time * 6.0 + float(i))
-		draw_circle(Vector2(bp.x - 24.0, ly), 2.4, Color(lc.r, lc.g, lc.b, tw))
+		ci.draw_circle(Vector2(bp.x - 24.0, ly), 2.4, Color(lc.r, lc.g, lc.b, tw))
 
 func _draw_christmas_props() -> void:
-	# 1. Warm Glowing North Pole Lantern Posts
+	# 1. Static Lantern Posts (pulsing halos draw in _draw_christmas_dynamic)
 	for lp in _lanterns:
-		var glow: float = 0.82 + 0.18 * sin(_time * 4.0 + lp.x * 0.05)
-		draw_circle(lp, 26.0, Color(1.0, 0.80, 0.30, 0.16 * glow))
-		draw_circle(lp, 12.0, Color(1.0, 0.88, 0.42, 0.32 * glow))
 		draw_circle(lp, 3.8, Color(0.16, 0.18, 0.20))
 		draw_circle(lp, 2.4, Color(1.0, 0.95, 0.65))
 
@@ -1714,9 +1815,7 @@ func _draw_christmas_props() -> void:
 		var ang: float = float(cc["ang"])
 		var d := Vector2.from_angle(ang)
 		var perp := Vector2(-d.y, d.x)
-		# Shadow
 		draw_line(p + Vector2(3, 4), p + Vector2(3, 4) - perp * 16.0, Color(0.06, 0.12, 0.24, 0.28), 5.2, true)
-		# Curved candy cane hook + stem
 		var pts := PackedVector2Array([
 			p + perp * 6.0, p - perp * 10.0, p - perp * 14.0 + d * 4.0, p - perp * 12.0 + d * 8.0
 		])
@@ -1749,17 +1848,34 @@ func _draw_christmas_props() -> void:
 		var ang: float = float(sm["ang"])
 		var d := Vector2.from_angle(ang)
 		draw_circle(p + Vector2(4.5, 5.5), 11.5, Color(0.06, 0.12, 0.24, 0.28))
-		# Snow body + scarf + head
 		draw_circle(p, 10.5, Color(0.86, 0.91, 0.96))
 		draw_circle(p + Vector2(-1.5, -1.5), 8.2, Color(0.96, 0.98, 1.0))
-		# Red scarf tail
 		draw_line(p, p + d * 11.0, Color(0.90, 0.18, 0.20), 3.4, true)
-		# Bright orange carrot nose peeking out
 		draw_line(p, p - d * 9.5, Color(0.98, 0.52, 0.12), 2.8, true)
-		# Black top hat with crimson ribbon band
 		draw_circle(p + Vector2(-1.2, -1.2), 6.2, Color(0.12, 0.12, 0.15))
 		draw_arc(p + Vector2(-1.2, -1.2), 4.4, 0.0, TAU, 16, Color(0.90, 0.18, 0.20), 1.6, true)
 		draw_circle(p + Vector2(-1.8, -1.8), 3.4, Color(0.22, 0.22, 0.26))
+
+func _draw_christmas_dynamic(ci: Node2D) -> void:
+	# Pulsing warm lantern halos
+	for lp in _lanterns:
+		var glow: float = 0.82 + 0.18 * sin(_time * 4.0 + lp.x * 0.05)
+		ci.draw_circle(lp, 26.0, Color(1.0, 0.80, 0.30, 0.16 * glow))
+		ci.draw_circle(lp, 12.0, Color(1.0, 0.88, 0.42, 0.32 * glow))
+	# Twinkling Christmas tree ornaments
+	var orn_cols: Array[Color] = [
+		Color(1.0, 0.22, 0.24), Color(1.0, 0.86, 0.26),
+		Color(0.30, 0.88, 1.0), Color(0.96, 0.36, 0.82)
+	]
+	for t in _trees:
+		var pos: Vector2 = t["pos"]
+		var r_tree: float = float(t["radius"])
+		for o_i in range(4):
+			var oa: float = float(o_i) * (TAU * 0.25) + pos.x * 0.1
+			var op: Vector2 = pos + Vector2.from_angle(oa) * (r_tree * 0.56)
+			var oc: Color = orn_cols[o_i]
+			var tw: float = 0.62 + 0.38 * sin(_time * 4.5 + pos.y * 0.05 + float(o_i) * 1.4)
+			ci.draw_circle(op, 2.2, Color(oc.r, oc.g, oc.b, tw))
 
 func _draw_buildings() -> void:
 	for b in _buildings:
@@ -1797,21 +1913,9 @@ func _draw_buildings() -> void:
 			draw_circle(tk, 6.8, Color(0.56, 0.58, 0.56))
 			draw_circle(tk + Vector2(-1.4, -1.4), 4.6, Color(0.72, 0.74, 0.72))
 		elif style == 5:
-			# Neo-Tokyo 2099 dark cyber-skyscraper rooftop with glowing animated neon edge trim & billboard!
+			# Neo-Tokyo 2099 dark cyber-skyscraper static hull (pulsing neon trim & beacons draw in _draw_buildings_dynamic)
 			draw_rect(rect, Color(0.08, 0.10, 0.14))
 			draw_rect(Rect2(rect.position + Vector2(3, 3), rect.size - Vector2(6, 6)), Color(0.13, 0.15, 0.21))
-			var tw_n: float = 0.72 + 0.28 * sin(_time * 3.8 + pos.x * 0.04 + pos.y * 0.03)
-			var neon_c := Color(col.r, col.g, col.b, 0.92 * tw_n)
-			var glow_c := Color(col.r, col.g, col.b, 0.22 * tw_n)
-			# Glowing neon rooftop perimeter trim
-			draw_rect(Rect2(rect.position - Vector2(1, 1), rect.size + Vector2(2, 2)), glow_c, false, 4.5)
-			draw_rect(rect, neon_c, false, 1.8)
-			# Holographic neon rooftop signage bar + blinking red aircraft beacon
-			draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20), Vector2(bw * 0.45, 5.0)), neon_c)
-			draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20 + 8.0), Vector2(bw * 0.28, 3.0)), Color(neon_c.r, neon_c.g, neon_c.b, 0.65))
-			var red_b: float = 0.4 + 0.6 * sin(_time * 5.0 + pos.x)
-			draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 4.5, Color(1.0, 0.15, 0.18, 0.28 * red_b))
-			draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 2.0, Color(1.0, 0.25, 0.25, 0.95 * red_b))
 		elif style == 0:
 			# Town pitched-roof terrace / townhouse
 			draw_rect(Rect2(rect.position - Vector2(1.5, 1.5), rect.size + Vector2(3, 3)), Color(0.16, 0.17, 0.18))
@@ -1956,42 +2060,51 @@ func _draw_domes() -> void:
 			draw_line(p - Vector2(0, r * 0.8), p + Vector2(0, r * 0.8), Color(0.45, 0.48, 0.54, 0.55), 1.2)
 			draw_circle(p, 2.5, Color(0.98, 0.72, 0.18))
 
+func _draw_buildings_dynamic(ci: Node2D) -> void:
+	for b in _buildings:
+		if int(b["style"]) != 5:
+			continue
+		var pos: Vector2 = b["pos"]
+		var bw: float = float(b["w"])
+		var bh: float = float(b["h"])
+		var col: Color = b["color"]
+		var rect := Rect2(pos - Vector2(bw * 0.5, bh * 0.5), Vector2(bw, bh))
+		var tw_n: float = 0.72 + 0.28 * sin(_time * 3.8 + pos.x * 0.04 + pos.y * 0.03)
+		var neon_c := Color(col.r, col.g, col.b, 0.92 * tw_n)
+		var glow_c := Color(col.r, col.g, col.b, 0.22 * tw_n)
+		ci.draw_rect(Rect2(rect.position - Vector2(1, 1), rect.size + Vector2(2, 2)), glow_c, false, 4.5)
+		ci.draw_rect(rect, neon_c, false, 1.8)
+		ci.draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20), Vector2(bw * 0.45, 5.0)), neon_c)
+		ci.draw_rect(Rect2(pos + Vector2(-bw * 0.30, -bh * 0.20 + 8.0), Vector2(bw * 0.28, 3.0)), Color(neon_c.r, neon_c.g, neon_c.b, 0.65))
+		var red_b: float = 0.4 + 0.6 * sin(_time * 5.0 + pos.x)
+		ci.draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 4.5, Color(1.0, 0.15, 0.18, 0.28 * red_b))
+		ci.draw_circle(pos + Vector2(bw * 0.30, bh * 0.24), 2.0, Color(1.0, 0.25, 0.25, 0.95 * red_b))
+
 func _draw_crystals() -> void:
 	for cr in _crystals:
 		var p: Vector2 = cr["pos"]
 		var kind: String = String(cr["kind"])
 		var shards: Array = cr["shards"]
-		var ph: float = float(cr["phase"])
-		var pulse: float = 0.74 + 0.26 * sin(_time * 2.8 + ph)
 
 		var c_dark: Color
 		var c_mid: Color
 		var c_lit: Color
-		var glow_col := Color(0, 0, 0, 0)
 		if kind == "obsidian":
 			c_dark = Color(0.06, 0.06, 0.08)
 			c_mid = Color(0.16, 0.14, 0.18)
 			c_lit = Color(0.86, 0.34, 0.10, 0.78)
-			glow_col = Color(1.0, 0.34, 0.06, 0.16 * pulse)
 		elif kind == "ice":
 			c_dark = Color(0.18, 0.44, 0.68)
 			c_mid = Color(0.42, 0.78, 0.94)
 			c_lit = Color(0.88, 0.96, 1.0)
-			glow_col = Color(0.24, 0.84, 1.0, 0.18 * pulse)
 		elif kind == "xeno_cyan":
 			c_dark = Color(0.06, 0.38, 0.52)
 			c_mid = Color(0.14, 0.82, 0.92)
 			c_lit = Color(0.76, 1.0, 1.0)
-			glow_col = Color(0.14, 0.94, 1.0, 0.26 * pulse)
 		else:
-			# xeno_magenta
 			c_dark = Color(0.38, 0.08, 0.44)
 			c_mid = Color(0.86, 0.18, 0.82)
 			c_lit = Color(1.0, 0.76, 0.98)
-			glow_col = Color(0.96, 0.20, 0.88, 0.26 * pulse)
-
-		if glow_col.a > 0.01:
-			draw_circle(p, float(cr["radius"]) * 1.35, glow_col)
 
 		for sh in shards:
 			var ang: float = float(sh["ang"])
@@ -2011,7 +2124,24 @@ func _draw_crystals() -> void:
 			draw_colored_polygon(lit_face, c_mid)
 			draw_line(p, p + dir * (slen * 0.92), c_lit, 1.6, true)
 
-func _draw_ambient_motes() -> void:
+func _draw_crystals_dynamic(ci: Node2D) -> void:
+	for cr in _crystals:
+		var p: Vector2 = cr["pos"]
+		var kind: String = String(cr["kind"])
+		var ph: float = float(cr["phase"])
+		var pulse: float = 0.74 + 0.26 * sin(_time * 2.8 + ph)
+		var glow_col: Color
+		if kind == "obsidian":
+			glow_col = Color(1.0, 0.34, 0.06, 0.16 * pulse)
+		elif kind == "ice":
+			glow_col = Color(0.24, 0.84, 1.0, 0.18 * pulse)
+		elif kind == "xeno_cyan":
+			glow_col = Color(0.14, 0.94, 1.0, 0.24 * pulse)
+		else:
+			glow_col = Color(0.96, 0.20, 0.88, 0.24 * pulse)
+		ci.draw_circle(p, float(cr["radius"]) * 1.35, glow_col)
+
+func _draw_ambient_motes(ci: Node2D) -> void:
 	for mt in _ambient_motes:
 		var p := Vector2(float(mt["x"]), float(mt["y"]))
 		var r: float = float(mt["r"])
@@ -2020,18 +2150,18 @@ func _draw_ambient_motes() -> void:
 		var tw: float = 0.45 + 0.55 * sin(_time * 4.2 + ph)
 
 		if kind == "ember":
-			draw_circle(p, r * 2.2, Color(1.0, 0.38, 0.06, 0.22 * tw))
-			draw_circle(p, r, Color(1.0, 0.78, 0.22, 0.88 * tw))
+			ci.draw_circle(p, r * 2.2, Color(1.0, 0.38, 0.06, 0.22 * tw))
+			ci.draw_circle(p, r, Color(1.0, 0.78, 0.22, 0.88 * tw))
 		elif kind == "firefly":
-			draw_circle(p, r * 2.8, Color(0.68, 1.0, 0.28, 0.22 * tw))
-			draw_circle(p, r * 0.85, Color(0.88, 1.0, 0.55, 0.92 * tw))
+			ci.draw_circle(p, r * 2.8, Color(0.68, 1.0, 0.28, 0.22 * tw))
+			ci.draw_circle(p, r * 0.85, Color(0.88, 1.0, 0.55, 0.92 * tw))
 		elif kind == "rain":
 			var tail := p - Vector2(5.0, r)
 			var rc := Color(0.45, 0.88, 1.0, 0.24) if sin(ph) > 0.0 else Color(1.0, 0.44, 0.86, 0.22)
-			draw_line(tail, p, rc, 1.1, true)
+			ci.draw_line(tail, p, rc, 1.1, true)
 		elif kind == "mars_dust":
-			draw_circle(p, r, Color(0.84, 0.44, 0.26, 0.28 * tw))
+			ci.draw_circle(p, r, Color(0.84, 0.44, 0.26, 0.28 * tw))
 		elif kind == "spore":
 			var sc := Color(0.18, 0.96, 1.0) if sin(ph) > 0.0 else Color(0.98, 0.28, 0.92)
-			draw_circle(p, r * 2.6, Color(sc.r, sc.g, sc.b, 0.22 * tw))
-			draw_circle(p, r * 0.9, Color(sc.r, sc.g, sc.b, 0.90 * tw))
+			ci.draw_circle(p, r * 2.6, Color(sc.r, sc.g, sc.b, 0.22 * tw))
+			ci.draw_circle(p, r * 0.9, Color(sc.r, sc.g, sc.b, 0.90 * tw))
