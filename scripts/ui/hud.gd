@@ -14,6 +14,7 @@ signal pause_menu_requested()
 signal pause_menu_resumed()
 signal mute_toggled()
 signal audio_settings_changed(master_muted: bool, sfx_volume: float, sfx_muted: bool, music_volume: float, music_muted: bool)
+signal avatar_style_changed(style: String)
 signal reset_save_requested()
 signal restart_requested()
 signal replay_sector_requested()
@@ -103,8 +104,16 @@ var _audio_overlay: ColorRect
 # Hall of Decorations (North Korean General) overlay & award toast
 var _medals_overlay: ColorRect
 var _general_view: GeneralMedalsView
+var _avatar_male_btn: Button
+var _avatar_female_btn: Button
+var _avatar_style: String = "male"
 var _medals_count_lbl: Label
 var _medals_weight_lbl: Label
+var _about_overlay: ColorRect
+var _about_dossier_btn: Button
+var _about_manual_btn: Button
+var _about_dossier_scroll: ScrollContainer
+var _about_manual_scroll: ScrollContainer
 var _medal_detail_panel: PanelContainer
 var _medal_detail_title: Label
 var _medal_detail_meta: Label
@@ -239,6 +248,7 @@ func _build_ui() -> void:
 	_build_audio_overlay()
 	_build_end_overlay()
 	_build_medals_overlay()
+	_build_about_overlay()
 	_build_medal_toast()
 
 func _build_top_bar() -> void:
@@ -892,12 +902,33 @@ func _build_medals_overlay() -> void:
 	root_v.add_child(hdr)
 
 	var title := Label.new()
-	title.text = "HALL OF SOVEREIGN DECORATIONS  —  COMMANDING GENERAL'S CHEST"
+	title.text = "HALL OF SOVEREIGN DECORATIONS"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 16)
 	title.add_theme_color_override("font_color", COL_AMBER)
 	hdr.add_child(title)
+
+	var av_lbl := Label.new()
+	av_lbl.text = "GENERAL:"
+	av_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	av_lbl.add_theme_font_size_override("font_size", 11)
+	av_lbl.add_theme_color_override("font_color", COL_MUTED)
+	hdr.add_child(av_lbl)
+
+	_avatar_male_btn = Button.new()
+	_avatar_male_btn.text = "MALE"
+	_avatar_male_btn.custom_minimum_size = Vector2(68, 28)
+	_avatar_male_btn.add_theme_font_size_override("font_size", 11)
+	_avatar_male_btn.pressed.connect(func(): _on_avatar_style_clicked("male"))
+	hdr.add_child(_avatar_male_btn)
+
+	_avatar_female_btn = Button.new()
+	_avatar_female_btn.text = "FEMALE"
+	_avatar_female_btn.custom_minimum_size = Vector2(74, 28)
+	_avatar_female_btn.add_theme_font_size_override("font_size", 11)
+	_avatar_female_btn.pressed.connect(func(): _on_avatar_style_clicked("female"))
+	hdr.add_child(_avatar_female_btn)
 
 	var close_btn := Button.new()
 	close_btn.text = "CLOSE  [ESC]"
@@ -1038,11 +1069,34 @@ func _on_medal_selected(medal_id: String) -> void:
 	_refresh_medal_detail()
 	_refresh_medal_list_styles()
 
+func set_general_avatar(style: String) -> void:
+	_avatar_style = "female" if style == "female" else "male"
+	if _general_view != null:
+		_general_view.set_avatar_style(_avatar_style)
+	_refresh_avatar_toggle_btns()
+	if _medals_overlay != null and _medals_overlay.visible:
+		_refresh_medals_hall()
+
+func _on_avatar_style_clicked(style: String) -> void:
+	if _avatar_style == style:
+		return
+	set_general_avatar(style)
+	avatar_style_changed.emit(_avatar_style)
+
+func _refresh_avatar_toggle_btns() -> void:
+	if _avatar_male_btn == null or _avatar_female_btn == null:
+		return
+	var is_f := (_avatar_style == "female")
+	_style_button(_avatar_male_btn, COL_AMBER if not is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if not is_f else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
+	_style_button(_avatar_female_btn, COL_AMBER if is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if is_f else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
+
 func _refresh_medals_hall() -> void:
 	var all_medals := MedalData.get_all_medals()
 	var cnt := _unlocked_medals.size()
 	var total := all_medals.size()
+	_general_view.set_avatar_style(_avatar_style)
 	_general_view.set_medals(_unlocked_medals, _selected_medal_id)
+	_refresh_avatar_toggle_btns()
 	_medals_count_lbl.text = "DECORATIONS PINNED: %d / %d" % [cnt, total]
 
 	var grams := 0
@@ -1054,7 +1108,7 @@ func _refresh_medals_hall() -> void:
 	if cnt >= 35:
 		advisory = "CAP-MOUNTED — GRAVITATIONAL ANOMALY"
 	elif cnt >= 30:
-		advisory = "TROUSER-MOUNTED — FORKLIFT ADVISED"
+		advisory = ("SKIRT-MOUNTED — FORKLIFT ADVISED" if _avatar_style == "female" else "TROUSER-MOUNTED — FORKLIFT ADVISED")
 	elif cnt >= 24:
 		advisory = "SLEEVE OVERFLOW — SPINAL WARNING"
 	elif cnt >= 16:
@@ -1113,7 +1167,7 @@ func _refresh_medal_detail() -> void:
 		if slot_idx >= 34:
 			slot_note = "  •  PINNED ON PEAKED CAP"
 		elif slot_idx >= 30:
-			slot_note = "  •  PINNED ON TROUSERS"
+			slot_note = "  •  PINNED ON DRESS SKIRT" if _avatar_style == "female" else "  •  PINNED ON TROUSERS"
 		elif slot_idx >= 26:
 			slot_note = "  •  PINNED ON SLEEVE"
 		elif slot_idx >= 22:
@@ -1134,6 +1188,209 @@ func _refresh_medal_detail() -> void:
 	_medal_detail_desc.text = "Requirement: %s" % String(def["desc"])
 	_medal_detail_citation.text = "\"%s\"" % String(def["citation"])
 
+func _build_about_overlay() -> void:
+	_about_overlay = ColorRect.new()
+	_about_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_about_overlay.color = Color(0.02, 0.03, 0.02, 0.85)
+	_about_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_about_overlay.visible = false
+	_root.add_child(_about_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_about_overlay.add_child(center)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(760, 540)
+	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 24, 18))
+	center.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	card.add_child(vbox)
+
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", 10)
+	vbox.add_child(hdr)
+
+	var title := Label.new()
+	title.text = "OFFICIAL STRATEGIC DOSSIER & FIELD MANUAL"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", COL_AMBER)
+	hdr.add_child(title)
+
+	_about_dossier_btn = Button.new()
+	_about_dossier_btn.text = "DOSSIER"
+	_about_dossier_btn.custom_minimum_size = Vector2(88, 28)
+	_about_dossier_btn.add_theme_font_size_override("font_size", 11)
+	_about_dossier_btn.pressed.connect(func(): _set_about_tab(0))
+	hdr.add_child(_about_dossier_btn)
+
+	_about_manual_btn = Button.new()
+	_about_manual_btn.text = "FIELD MANUAL"
+	_about_manual_btn.custom_minimum_size = Vector2(112, 28)
+	_about_manual_btn.add_theme_font_size_override("font_size", 11)
+	_about_manual_btn.pressed.connect(func(): _set_about_tab(1))
+	hdr.add_child(_about_manual_btn)
+
+	var close_btn := Button.new()
+	close_btn.text = "CLOSE  [ESC]"
+	close_btn.custom_minimum_size = Vector2(108, 28)
+	close_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 2)
+	close_btn.pressed.connect(func(): hide_about_overlay())
+	hdr.add_child(close_btn)
+
+	var sub_bar := PanelContainer.new()
+	sub_bar.add_theme_stylebox_override("panel", _make_box(Color(0.09, 0.12, 0.09, 0.95), COL_BORDER, 4, 1, 12, 6))
+	vbox.add_child(sub_bar)
+
+	var sub_lbl := Label.new()
+	sub_lbl.text = "★★★★★ 5.0 / 5.0  (4,812,904 MANDATORY CITIZEN REVIEWS)   •   MINISTRY OF INFORMATION APPROVED   •   SHORT CODE: S.A.W.P."
+	sub_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub_lbl.add_theme_font_size_override("font_size", 11)
+	sub_lbl.add_theme_color_override("font_color", COL_GREEN)
+	sub_bar.add_child(sub_lbl)
+
+	_about_dossier_scroll = ScrollContainer.new()
+	_about_dossier_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_about_dossier_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(_about_dossier_scroll)
+
+	var content_v := VBoxContainer.new()
+	content_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_v.add_theme_constant_override("separation", 12)
+	_about_dossier_scroll.add_child(content_v)
+
+	var sections: Array[Array] = [
+		[
+			"WHO YOU ARE: AN UNBELIEVABLY IMPRESSIVE SPECIMEN OF LEADERSHIP",
+			"You are a heroic, battle-hardened Supreme Tactical Commander of peerless intellect, chiselled resolve and impeccable posture. You are a summa cum laude graduate of the Royal Academy of Pointing Sternly at Maps, an undefeated scratch golfer (having recorded seven consecutive holes-in-one during a single nine-hole charity tournament witnessed exclusively by loyal junior officers), a three-time Regional Competitive Hot Dog Consumption Laureate and the reigning Head Librarian of the Sovereign Municipal Annex (zero overdue books since 1997).\n\nIn your sparse leisure hours, you are also a certified forklift philosopher, undefeated neighbourhood croquet autocrat, inventor of the ergonomic trench clipboard, honorary Grand Admiral of a strictly landlocked duck pond, master artisanal sourdough tactician, provincial yodelling adjudicator and the only living officer documented to have folded a fitted bedsheet into a regulation cube under sustained artillery fire. Small birds pause mid-flight merely to salute your moustache.",
+		],
+		[
+			"OUR RADIANT, AGGRESSIVELY PEACE-LOVING HOMELAND",
+			"You stand as the solitary concrete-pouring guardian of our gloriously tranquil, harmony-obsessed Sovereign Republic — a serene utopia of courteous roundabouts, award-winning municipal jam cooperatives, deeply polite swans, punctual fortnightly recycling collection, exquisitely fair zoning bylaws and gentle citizens who have never once raised their voices above a respectful library whisper.",
+		],
+		[
+			"THE UNSPEAKABLY EVIL, TYRANNICAL ENEMY",
+			"Now, this fragile paradise of jam and well-behaved waterfowl is imperilled by the Unspeakably Evil, Tyrannical, Queue-Jumping, Library-Book-Dog-Earing, Unauthorized-Parking-Encouraging Coalition of Nefarious Despots! Driven by pure cartoon-grade malice, these ruthless, unshaven warmongers despise proper concrete foundations, loathe orderly roundabouts, listen to videos on public transit without headphones and seek to roll their thoroughly unauthorized vehicles and deeply impolite aircraft straight across our freshly painted crosswalks into Command Headquarters!",
+		],
+		[
+			"YOUR SACRED CONSTITUTIONAL DUTY",
+			"Only YOU — armed with boundless charisma, a suspiciously immaculate golf handicap and an unlimited municipal concrete stipend — can preserve democracy, preserves and strict airspace zoning by executing:\n\nSTATIONARY AUTOMATED WEAPON PLACEMENT ON SOVEREIGN TACTICAL BASTIONS FOR THE PREVENTION OF UNAUTHORIZED VEHICULAR AND AERIAL INCURSION INTO COMMAND HEADQUARTERS.\n\n• 16 Sovereign Theaters of Operations — from tranquil Alpine valleys and Australian outback highways to Mars, Europa and hostile alien exoplanets (all equally in need of firm parking enforcement).\n• 7 Aggressively Automated Weapon Systems — Vulcan rotary cannons, Cryo chillers, Howitzers, SAM batteries, autonomous Hunter-Killer Drones, Dragonfire directed-energy lasers and HIMARS thermobaric rocket salvos.\n• 50 Escalating Military Ranks — beginning with humble real-world titles before rapidly spiralling into glorious bureaucratic-imperial nonsense.\n• 36 Heavy Brass Decorations — pinned directly onto your Commanding General until their uniform collapses into a gravitational hazard.",
+		],
+		[
+			"VERIFIED CITIZEN TESTIMONIALS (VOLUNTARILY SUBMITTED)",
+			"★★★★★  \"My spine has yielded beneath 13 kilograms of solid brass medals and I have never felt more sovereign.\"  — Rear-Admiral of Municipal Hedges\n★★★★★  \"I tried to park my BTR armoured personnel carrier in a loading zone and was immediately vaporized by a directed-energy laser. Fair policy.\"  — Reformed Invader\n★★★★★  \"Seven consecutive holes-in-one on a nine-hole course is mathematically improbable yet deeply inspiring.\"  — Chief Municipal Caddie",
+		],
+	]
+
+	for sec in sections:
+		var sh := Label.new()
+		sh.text = String(sec[0])
+		sh.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sh.add_theme_font_size_override("font_size", 13)
+		sh.add_theme_color_override("font_color", COL_AMBER)
+		content_v.add_child(sh)
+
+		var sb := Label.new()
+		sb.text = String(sec[1])
+		sb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sb.add_theme_font_size_override("font_size", 12)
+		sb.add_theme_color_override("font_color", COL_TEXT)
+		content_v.add_child(sb)
+
+	# Tab 2: Field Manual (tactical reference of all 7 turrets & 9+1 hostiles in deadpan prose, zero Oxford commas)
+	_about_manual_scroll = ScrollContainer.new()
+	_about_manual_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_about_manual_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_about_manual_scroll.visible = false
+	vbox.add_child(_about_manual_scroll)
+
+	var man_v := VBoxContainer.new()
+	man_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	man_v.add_theme_constant_override("separation", 8)
+	_about_manual_scroll.add_child(man_v)
+
+	var t_hdr := Label.new()
+	t_hdr.text = "AUTHORIZED STATIONARY AUTOMATED WEAPON SYSTEMS (7)"
+	t_hdr.add_theme_font_size_override("font_size", 13)
+	t_hdr.add_theme_color_override("font_color", COL_AMBER)
+	man_v.add_child(t_hdr)
+
+	var turret_notes: Array[String] = [
+		"[1] VULCAN MG ($70 • GND+AIR) — High-rate rotary cannon ideal for light convoys, Shahed FPV drones and early gunships. Low armor penetration against main battle tanks.",
+		"[2] CRYO EMITTER ($100 • SLOW+AOE) — Liquid-nitrogen projector chilling ground and air columns up to 64% at Lv 4. Multiplies kill-zone time for every neighbouring turret.",
+		"[3] HOWITZER CANNON ($120 • GND+AOE) — Heavy armor-piercing lead-aiming shells (up to 100% AP at Lv 4) that shatter clustered APCs and tanks. Cannot engage aircraft.",
+		"[4] SAM BATTERY ($140 • AA+HEAVY) — Long-range homing missiles that automatically prioritize aircraft in range with a 1.65x air damage bonus and strong armor penetration.",
+		"[5] HUNTER DRONE PAD ($150 • MAP HUNT) — Launches an autonomous orbiting UAV that relentlessly pursues its target across the entire map until destroyed. Use [H] to hold on pad and [F] to assign a specific high-value target.",
+		"[6] DRAGONFIRE HEL ($160 • BEAM+APS) — Ramping directed-energy laser (up to 2.75x peak DPS at Lv 4). Completely ignores armor and deals 2x damage against Trophy APS shields.",
+		"[7] HIMARS MLRS ($185 • SALVO+FIRE) — Ultra-long-range rocket battery saturating ground highways with explosive salvos and lingering thermobaric fire pools. Cannot hit aircraft.",
+	]
+	for line in turret_notes:
+		var lbl := Label.new()
+		lbl.text = "• " + line
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.add_theme_color_override("font_color", COL_TEXT)
+		man_v.add_child(lbl)
+
+	var e_hdr := Label.new()
+	e_hdr.text = "\nKNOWN UNAUTHORIZED INCURSION CLASSES (9 + UAV SUB-UNITS)"
+	e_hdr.add_theme_font_size_override("font_size", 13)
+	e_hdr.add_theme_color_override("font_color", COL_AMBER)
+	man_v.add_child(e_hdr)
+
+	var enemy_notes: Array[String] = [
+		"RECON HUMVEE (Light Ground • 5% Armor • 1 HQ) — Brisk scout vehicle. Trivially discouraged by Vulcan MGs.",
+		"BTR ARMORED APC (Medium Ground • 22% Armor • 1 HQ) — Travels in stubborn columns. Pair Cryo slowing with Howitzer or MLRS splash.",
+		"MAIN BATTLE TANK (Heavy Ground • 55% Armor • 2 HQ) — Thick sloped armor shrugs off low-AP gunfire. Counter with Howitzers, Dragonfire Lasers or SAMs.",
+		"TROPHY APS TANK (Shielded Ground • 50% Armor • 2 HQ) — Protected by a regenerating Active Protection shield. Dragonfire Lasers deal 2x shield damage and melt it rapidly.",
+		"MOBILE UAV CARRIER (Support Ground • 28% Armor • 2 HQ) — Periodically catapults $0-bounty Shahed FPV Drones straight into the air lane. Snipe early with Hunter Drones or Lasers.",
+		"SHAHED FPV DRONE (Fast Air • $0 Bounty • 1 HQ) — Swarming micro-drones launched by UAV Carriers. Keep a Vulcan or Cryo covering the air corridor.",
+		"ATTACK GUNSHIP (Fast Air • 12% Armor • 2 HQ) — Bypasses roads entirely along the direct air vector. Counter with SAM Batteries and Vulcans.",
+		"HEAVY STRIKER JET (Armored Air • 30% Armor • 3 HQ) — Durable strike aircraft demanding dedicated SAM Batteries or Dragonfire Lasers.",
+		"SIEGE JUGGERNAUT (Ground Boss • 66% Armor • 5 HQ) — Colossal rolling fortress. Slow with Cryo and focus-fire with Dragonfire Lasers, maxed Howitzers and Hellfire Air Strikes.",
+		"HEAVY ASSAULT GUNSHIP / SKY FORTRESS (Air Boss • 48% Armor • 4 HQ) — Twin-rotor aerial dreadnought. Prioritize upgraded SAM Batteries, Dragonfire Lasers and Cryo emitters.",
+	]
+	for line in enemy_notes:
+		var lbl := Label.new()
+		lbl.text = "• " + line
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.add_theme_color_override("font_color", COL_TEXT)
+		man_v.add_child(lbl)
+
+	var tip_lbl := Label.new()
+	tip_lbl.text = "\nTACTICAL NOTE: Turrets earn veteran chevrons at 15 (DECORATED), 35 (TENURED) and 60 (EMERITUS) kills. Calling waves early with [N] awards bonus funding and improves your final sector efficiency valuation."
+	tip_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip_lbl.add_theme_font_size_override("font_size", 11)
+	tip_lbl.add_theme_color_override("font_color", COL_GREEN)
+	man_v.add_child(tip_lbl)
+
+	_set_about_tab(0)
+
+func _set_about_tab(tab_idx: int) -> void:
+	var is_dossier := (tab_idx == 0)
+	_about_dossier_scroll.visible = is_dossier
+	_about_manual_scroll.visible = not is_dossier
+	_style_button(_about_dossier_btn, COL_AMBER if is_dossier else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if is_dossier else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
+	_style_button(_about_manual_btn, COL_AMBER if not is_dossier else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if not is_dossier else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
+
+func show_about_overlay() -> void:
+	if _about_overlay != null:
+		_set_about_tab(0)
+		_about_overlay.visible = true
+
+func hide_about_overlay() -> void:
+	if _about_overlay != null:
+		_about_overlay.visible = false
+
+func is_about_overlay_visible() -> bool:
+	return _about_overlay != null and _about_overlay.visible
+
 func _build_menu_overlay() -> void:
 	_menu_overlay = ColorRect.new()
 	_menu_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1145,7 +1402,7 @@ func _build_menu_overlay() -> void:
 	_menu_overlay.add_child(center)
 
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(820, 445)
+	card.custom_minimum_size = Vector2(840, 445)
 	card.add_theme_stylebox_override("panel", _make_box(COL_BG_DARK, COL_AMBER, 6, 2, 24, 18))
 	center.add_child(card)
 
@@ -1308,14 +1565,36 @@ func _build_menu_overlay() -> void:
 	)
 	vbox.add_child(deploy_btn)
 
+	var footer_row := HBoxContainer.new()
+	footer_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(footer_row)
+
+	var left_pad := Control.new()
+	left_pad.custom_minimum_size = Vector2(72, 0)
+	footer_row.add_child(left_pad)
+
 	var active_season := SeasonalData.get_active_seasonal_event()
 	if not active_season.is_empty():
 		var hint_lbl := Label.new()
 		hint_lbl.text = String(active_season["hint"])
+		hint_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		hint_lbl.add_theme_font_size_override("font_size", 11)
 		hint_lbl.add_theme_color_override("font_color", Color(0.98, 0.44, 0.38, 0.92))
-		vbox.add_child(hint_lbl)
+		footer_row.add_child(hint_lbl)
+	else:
+		var mid_spacer := Control.new()
+		mid_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		footer_row.add_child(mid_spacer)
+
+	var about_btn := Button.new()
+	about_btn.text = "ABOUT"
+	about_btn.custom_minimum_size = Vector2(72, 24)
+	about_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(about_btn, COL_BORDER, Color(0.11, 0.14, 0.12, 0.95), 8, 2)
+	about_btn.pressed.connect(func(): show_about_overlay())
+	footer_row.add_child(about_btn)
 
 	_set_sector_page(0)
 	_select_sector("iron_valley", false)
@@ -1597,6 +1876,7 @@ func show_menu() -> void:
 	_end_overlay.visible = false
 	_pause_overlay.visible = false
 	_audio_overlay.visible = false
+	_about_overlay.visible = false
 	_inspector_panel.visible = false
 	_wave_preview_panel.visible = false
 	_reset_save_confirm_btn()
@@ -1604,6 +1884,7 @@ func show_menu() -> void:
 func hide_menu() -> void:
 	_menu_overlay.visible = false
 	_audio_overlay.visible = false
+	_about_overlay.visible = false
 
 func get_selected_difficulty() -> WaveData.Difficulty:
 	return _selected_diff
@@ -1864,7 +2145,9 @@ func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = fal
 	_inspector_panel.visible = true
 	var cfg := turret.config
 	var st := turret.get_stats()
-	_insp_title.text = "%s  •  LV %d/4   |   KILLS: %d" % [String(cfg["name"]), turret.level + 1, turret.kills]
+	var vet := turret.get_veteran_title()
+	var vet_tag := ("  [%s]" % vet) if vet != "" else ""
+	_insp_title.text = "%s%s  •  LV %d/4   |   KILLS: %d" % [String(cfg["name"]), vet_tag, turret.level + 1, turret.kills]
 
 	if turret.turret_type == TurretData.TurretType.LASER:
 		var base_dps: float = float(st["damage"])

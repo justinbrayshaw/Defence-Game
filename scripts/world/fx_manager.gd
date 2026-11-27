@@ -7,6 +7,7 @@ var _flashes: Array[Dictionary] = []
 var _texts: Array[Dictionary] = []
 var _jets: Array[Dictionary] = []
 var _beams: Array[Dictionary] = []
+var _pending_fireworks: Array[Dictionary] = []
 
 # Air Strike targeting reticle preview
 var airstrike_aiming: bool = false
@@ -28,6 +29,7 @@ func clear_all() -> void:
 	_texts.clear()
 	_jets.clear()
 	_beams.clear()
+	_pending_fireworks.clear()
 	airstrike_aiming = false
 	drone_assign_aiming = false
 	queue_redraw()
@@ -298,14 +300,74 @@ func spawn_festive_pop(pos: Vector2, radius: float = 36.0) -> void:
 			"rot_spd": randf_range(-18.0, 18.0),
 		})
 
-func spawn_floating_text(pos: Vector2, text: String, color: Color = Color(0.96, 0.86, 0.36)) -> void:
+func spawn_floating_text(pos: Vector2, text: String, color: Color = Color(0.96, 0.86, 0.36), life: float = 0.85, callout: bool = false) -> void:
 	_texts.append({
 		"pos": pos,
 		"text": text,
 		"color": color,
 		"age": 0.0,
-		"life": 0.85,
+		"life": life,
+		"callout": callout,
 	})
+
+func spawn_victory_fireworks(center_pos: Vector2, burst_count: int = 8) -> void:
+	var palette: Array[Color] = [
+		Color(1.0, 0.84, 0.24, 1.0),
+		Color(0.98, 0.26, 0.24, 1.0),
+		Color(0.32, 0.92, 0.48, 1.0),
+		Color(0.38, 0.88, 1.0, 1.0),
+		Color(0.98, 0.42, 0.86, 1.0),
+		Color(1.0, 0.96, 0.82, 1.0),
+	]
+	for i in range(burst_count):
+		var ang := randf_range(0.0, TAU)
+		var dist := randf_range(28.0, 185.0)
+		_pending_fireworks.append({
+			"pos": center_pos + Vector2.from_angle(ang) * dist + Vector2(0, randf_range(-65.0, 25.0)),
+			"delay": float(i) * 0.26 + randf_range(0.0, 0.14),
+			"color": palette[i % palette.size()],
+			"radius": randf_range(44.0, 74.0),
+		})
+
+func _trigger_firework_burst(pos: Vector2, col: Color, radius: float) -> void:
+	_rings.append({
+		"pos": pos,
+		"start_r": 6.0,
+		"end_r": radius * 1.15,
+		"color": Color(col.r, col.g, col.b, 0.88),
+		"width": 2.6,
+		"age": 0.0,
+		"life": 0.55,
+	})
+	_particles.append({
+		"pos": pos,
+		"vel": Vector2.ZERO,
+		"drag": 1.0,
+		"size": radius * 0.34,
+		"end_size": radius * 0.08,
+		"color": Color(1.0, 0.98, 0.90, 0.95),
+		"end_color": Color(col.r, col.g, col.b, 0.0),
+		"age": 0.0,
+		"life": 0.24,
+		"shape": "circle",
+	})
+	var sparks := 26
+	for k in range(sparks):
+		var a := (float(k) / float(sparks)) * TAU + randf_range(-0.12, 0.12)
+		var spd := randf_range(radius * 1.4, radius * 3.1)
+		var c := col if (k % 3 != 0) else Color(1.0, 0.95, 0.72, 1.0)
+		_particles.append({
+			"pos": pos,
+			"vel": Vector2.from_angle(a) * spd,
+			"drag": 2.4,
+			"size": randf_range(2.6, 4.2),
+			"end_size": 0.6,
+			"color": c,
+			"end_color": Color(c.r, c.g, c.b, 0.0),
+			"age": 0.0,
+			"life": randf_range(0.65, 1.15),
+			"shape": "spark" if (k % 2 == 0) else "circle",
+		})
 
 func spawn_airstrike_jets(target_pos: Vector2, dir: Vector2) -> void:
 	var n_dir := dir.normalized()
@@ -331,7 +393,14 @@ func _process(delta: float) -> void:
 		else:
 			_beams.remove_at(i)
 
-	var active := airstrike_aiming or drone_assign_aiming or had_beams or not _beams.is_empty() or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty()
+	for i in range(_pending_fireworks.size() - 1, -1, -1):
+		var fw: Dictionary = _pending_fireworks[i]
+		fw["delay"] = float(fw["delay"]) - delta
+		if float(fw["delay"]) <= 0.0:
+			_trigger_firework_burst(fw["pos"], fw["color"], float(fw["radius"]))
+			_pending_fireworks.remove_at(i)
+
+	var active := airstrike_aiming or drone_assign_aiming or had_beams or not _beams.is_empty() or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty() or not _pending_fireworks.is_empty()
 
 	for i in range(_particles.size() - 1, -1, -1):
 		var p := _particles[i]
@@ -459,10 +528,24 @@ func _draw() -> void:
 	for t in _texts:
 		var u := clampf(float(t["age"]) / float(t["life"]), 0.0, 1.0)
 		var col: Color = t["color"]
-		col.a = 1.0 - pow(u, 1.6)
-		var pos: Vector2 = Vector2(t["pos"]) - Vector2(90.0, 0.0)
-		draw_string(font, pos + Vector2(1.0, 1.0), String(t["text"]), HORIZONTAL_ALIGNMENT_CENTER, 180.0, 13, Color(0.0, 0.0, 0.0, col.a * 0.85))
-		draw_string(font, pos, String(t["text"]), HORIZONTAL_ALIGNMENT_CENTER, 180.0, 13, col)
+		var is_callout: bool = bool(t.get("callout", false))
+		col.a = 1.0 - pow(u, 2.2 if is_callout else 1.6)
+		var txt := String(t["text"])
+		if is_callout:
+			var fsize := 15
+			var tsz := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+			var cx: float = Vector2(t["pos"]).x
+			var cy: float = Vector2(t["pos"]).y
+			var pad_x := 8.0
+			var pad_y := 4.0
+			var box := Rect2(cx - tsz.x * 0.5 - pad_x, cy - fsize - pad_y + 2.0, tsz.x + pad_x * 2.0, float(fsize) + pad_y * 2.0)
+			draw_rect(box, Color(0.05, 0.06, 0.05, col.a * 0.88))
+			draw_rect(box, Color(col.r, col.g, col.b, col.a * 0.85), false, 1.4)
+			draw_string(font, Vector2(cx - tsz.x * 0.5, cy), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, col)
+		else:
+			var pos: Vector2 = Vector2(t["pos"]) - Vector2(90.0, 0.0)
+			draw_string(font, pos + Vector2(1.0, 1.0), txt, HORIZONTAL_ALIGNMENT_CENTER, 180.0, 13, Color(0.0, 0.0, 0.0, col.a * 0.85))
+			draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_CENTER, 180.0, 13, col)
 
 	# 6. Air Strike Targeting Reticle
 	if airstrike_aiming:

@@ -53,6 +53,9 @@ func _default_data() -> Dictionary:
 		"sectors": {},
 		"stats": _default_stats(),
 		"medals": [],
+		"profile": {
+			"general_avatar": "male",
+		},
 	}
 
 func load_save() -> void:
@@ -97,6 +100,9 @@ func load_save() -> void:
 			if s_id != "" and not m_arr.has(s_id):
 				m_arr.append(s_id)
 		data["medals"] = m_arr
+	if loaded.has("profile") and loaded["profile"] is Dictionary:
+		var av := String((loaded["profile"] as Dictionary).get("general_avatar", "male"))
+		data["profile"]["general_avatar"] = "female" if av == "female" else "male"
 
 func save() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -197,6 +203,16 @@ func evaluate_and_unlock_medals() -> Array[String]:
 		data["medals"] = unlocked
 		save()
 	return newly_unlocked
+
+func get_general_avatar() -> String:
+	var prof: Dictionary = data.get("profile", {})
+	return "female" if String(prof.get("general_avatar", "male")) == "female" else "male"
+
+func set_general_avatar(style: String) -> void:
+	if not data.has("profile") or not (data["profile"] is Dictionary):
+		data["profile"] = {}
+	data["profile"]["general_avatar"] = "female" if style == "female" else "male"
+	save()
 
 func reset_campaign_progress() -> void:
 	data["sectors"] = {}

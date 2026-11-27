@@ -11,6 +11,7 @@ signal medal_selected(medal_id: String)
 var unlocked_ids: Array[String] = []
 var selected_medal_id: String = ""
 var hovered_medal_id: String = ""
+var avatar_style: String = "male" # "male" or "female" (both proudly keep the exact same magnificent moustache!)
 var _time: float = 0.0
 var _placed_medals: Array[Dictionary] = [] # { "id": String, "pos": Vector2, "scale": float, "rot": float, "def": Dictionary }
 
@@ -82,6 +83,10 @@ func set_medals(ids: Array[String], selected_id: String = "") -> void:
 
 func set_selected_medal(medal_id: String) -> void:
 	selected_medal_id = medal_id
+	queue_redraw()
+
+func set_avatar_style(style: String) -> void:
+	avatar_style = "female" if style == "female" else "male"
 	queue_redraw()
 
 func _process(delta: float) -> void:
@@ -217,25 +222,81 @@ func _draw_general_uniform(cx: float, cy: float, s: float) -> void:
 	var crimson := Color(0.72, 0.16, 0.16)
 	var skin := Color(0.86, 0.70, 0.56)
 	var skin_shade := Color(0.74, 0.56, 0.44)
+	var is_female := (avatar_style == "female")
 
-	# 1. Trousers (bottom of portrait — where medals 31-34 overflow!)
-	var leg_l := PackedVector2Array([
-		Vector2(cx - 0.44 * s, cy + 0.24 * s),
-		Vector2(cx - 0.02 * s, cy + 0.24 * s),
-		Vector2(cx - 0.04 * s, cy + 0.75 * s),
-		Vector2(cx - 0.48 * s, cy + 0.75 * s),
-	])
-	var leg_r := PackedVector2Array([
-		Vector2(cx + 0.02 * s, cy + 0.24 * s),
-		Vector2(cx + 0.44 * s, cy + 0.24 * s),
-		Vector2(cx + 0.48 * s, cy + 0.75 * s),
-		Vector2(cx + 0.04 * s, cy + 0.75 * s),
-	])
-	draw_colored_polygon(leg_l, pants_col)
-	draw_colored_polygon(leg_r, pants_col)
-	# Red dress trouser stripes
-	draw_line(Vector2(cx - 0.43 * s, cy + 0.25 * s), Vector2(cx - 0.46 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
-	draw_line(Vector2(cx + 0.43 * s, cy + 0.25 * s), Vector2(cx + 0.46 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
+	# 1. Trousers (male) OR Regulation Dress Skirt (female) — where medals 31-34 overflow!
+	if is_female:
+		var skirt := PackedVector2Array([
+			Vector2(cx - 0.44 * s, cy + 0.24 * s),
+			Vector2(cx + 0.44 * s, cy + 0.24 * s),
+			Vector2(cx + 0.54 * s, cy + 0.75 * s),
+			Vector2(cx - 0.54 * s, cy + 0.75 * s),
+		])
+		draw_colored_polygon(skirt, pants_col)
+		# Crisp center box-pleat shading
+		var pleat := PackedVector2Array([
+			Vector2(cx - 0.06 * s, cy + 0.26 * s),
+			Vector2(cx + 0.06 * s, cy + 0.26 * s),
+			Vector2(cx + 0.09 * s, cy + 0.75 * s),
+			Vector2(cx - 0.09 * s, cy + 0.75 * s),
+		])
+		draw_colored_polygon(pleat, pants_col.darkened(0.16))
+		draw_line(Vector2(cx, cy + 0.26 * s), Vector2(cx, cy + 0.75 * s), Color(0.10, 0.12, 0.09), 1.4)
+		# Ceremonial crimson dress piping along the skirt sides
+		draw_line(Vector2(cx - 0.43 * s, cy + 0.25 * s), Vector2(cx - 0.52 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
+		draw_line(Vector2(cx + 0.43 * s, cy + 0.25 * s), Vector2(cx + 0.52 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
+	else:
+		var leg_l := PackedVector2Array([
+			Vector2(cx - 0.44 * s, cy + 0.24 * s),
+			Vector2(cx - 0.02 * s, cy + 0.24 * s),
+			Vector2(cx - 0.04 * s, cy + 0.75 * s),
+			Vector2(cx - 0.48 * s, cy + 0.75 * s),
+		])
+		var leg_r := PackedVector2Array([
+			Vector2(cx + 0.02 * s, cy + 0.24 * s),
+			Vector2(cx + 0.44 * s, cy + 0.24 * s),
+			Vector2(cx + 0.48 * s, cy + 0.75 * s),
+			Vector2(cx + 0.04 * s, cy + 0.75 * s),
+		])
+		draw_colored_polygon(leg_l, pants_col)
+		draw_colored_polygon(leg_r, pants_col)
+		# Red dress trouser stripes
+		draw_line(Vector2(cx - 0.43 * s, cy + 0.25 * s), Vector2(cx - 0.46 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
+		draw_line(Vector2(cx + 0.43 * s, cy + 0.25 * s), Vector2(cx + 0.46 * s, cy + 0.75 * s), crimson, maxf(2.0, s * 0.018))
+
+	# 1.5. Regulation Ponytail peeking out behind the head/ear (female avatar — drawn behind head)
+	if is_female:
+		var hair_col := Color(0.26, 0.24, 0.23)
+		var hair_dark := Color(0.18, 0.16, 0.16)
+		var hair_hi := Color(0.38, 0.34, 0.32)
+		# Gathered hair peeking subtly behind both temples under the cap
+		draw_circle(Vector2(cx - 0.155 * s, cy - 0.52 * s), 0.042 * s, hair_col)
+		draw_circle(Vector2(cx + 0.155 * s, cy - 0.52 * s), 0.042 * s, hair_col)
+		# Compact S-curved ponytail tucked close to the neck with a tapered curl at the bottom
+		var pony := PackedVector2Array([
+			Vector2(cx + 0.14 * s, cy - 0.48 * s),
+			Vector2(cx + 0.20 * s, cy - 0.49 * s),
+			Vector2(cx + 0.245 * s, cy - 0.44 * s),
+			Vector2(cx + 0.245 * s, cy - 0.37 * s),
+			Vector2(cx + 0.28 * s, cy - 0.325 * s), # outward curl at tip
+			Vector2(cx + 0.24 * s, cy - 0.305 * s),
+			Vector2(cx + 0.195 * s, cy - 0.33 * s),
+			Vector2(cx + 0.175 * s, cy - 0.39 * s),
+			Vector2(cx + 0.155 * s, cy - 0.44 * s),
+		])
+		draw_colored_polygon(pony, hair_col)
+		draw_polyline(pony, hair_dark, 1.2, true)
+		# Subtle curved hair strand highlight following the flick
+		var strand := PackedVector2Array([
+			Vector2(cx + 0.195 * s, cy - 0.455 * s),
+			Vector2(cx + 0.22 * s, cy - 0.40 * s),
+			Vector2(cx + 0.225 * s, cy - 0.355 * s),
+			Vector2(cx + 0.258 * s, cy - 0.322 * s),
+		])
+		draw_polyline(strand, hair_hi, maxf(1.4, s * 0.011))
+		# Small neat crimson & gold hair tie right behind the ear
+		draw_circle(Vector2(cx + 0.175 * s, cy - 0.468 * s), maxf(2.6, s * 0.019), crimson)
+		draw_arc(Vector2(cx + 0.175 * s, cy - 0.468 * s), maxf(2.6, s * 0.019), 0.0, TAU, 12, gold, 1.2)
 
 	# 2. Sleeves / Arms (where medals 27-30 overflow!)
 	var sleeve_l := PackedVector2Array([

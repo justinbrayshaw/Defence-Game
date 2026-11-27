@@ -108,8 +108,36 @@ func cycle_target_mode() -> void:
 func get_target_mode_label() -> String:
 	return String(TurretData.TARGET_MODE_NAMES.get(target_mode, "FIRST"))
 
-func register_kill() -> void:
+func get_veteran_tier() -> int:
+	if kills >= 60:
+		return 3
+	elif kills >= 35:
+		return 2
+	elif kills >= 15:
+		return 1
+	return 0
+
+func get_veteran_title() -> String:
+	match get_veteran_tier():
+		1:
+			return "DECORATED"
+		2:
+			return "TENURED"
+		3:
+			return "EMERITUS"
+	return ""
+
+func register_kill() -> bool:
+	var prev_tier := get_veteran_tier()
 	kills += 1
+	var new_tier := get_veteran_tier()
+	if new_tier > prev_tier:
+		queue_redraw()
+		if _fx != null:
+			_fx.spawn_spark_hit(position, Color(1.0, 0.84, 0.24), 10)
+			_fx.spawn_floating_text(position + Vector2(0, -28), "PROMOTED: %s!" % get_veteran_title(), Color(1.0, 0.88, 0.30), 2.1, true)
+		return true
+	return false
 
 func can_launch_drone() -> bool:
 	if turret_type != TurretData.TurretType.DRONE:
@@ -546,6 +574,20 @@ func _draw() -> void:
 		draw_circle(ppos, 3.3, Color(0.05, 0.06, 0.05, 0.96))
 		draw_circle(ppos, 2.2, accent)
 		draw_circle(ppos + Vector2(-0.6, -0.6), 0.9, Color(1.0, 1.0, 1.0, 0.55))
+
+	# Veteran kill-milestone golden chevrons along top rim (15 / 35 / 60 kills)
+	var vet_tier := get_veteran_tier()
+	if vet_tier > 0:
+		var gold := Color(1.0, 0.84, 0.24)
+		for i in range(vet_tier):
+			var cy := -21.5 - float(i) * 4.0
+			var pts := PackedVector2Array([
+				Vector2(-5.4, cy + 2.4),
+				Vector2(0.0, cy - 1.8),
+				Vector2(5.4, cy + 2.4),
+			])
+			draw_polyline(pts, Color(0.06, 0.06, 0.05, 0.95), 3.6, true)
+			draw_polyline(pts, gold, 1.8, true)
 
 func _xf(pt: Vector2) -> Vector2:
 	return pt.rotated(turret_angle)

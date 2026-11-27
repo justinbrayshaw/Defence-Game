@@ -23,6 +23,8 @@ var lives: int = 20
 var max_lives: int = 20
 var total_kills: int = 0
 var _play_time_accum: float = 0.0
+var _callout_cd: float = 18.0
+var _leak_taunt_cd: float = 0.0
 
 # Wave state
 var current_wave_index: int = -1 # -1 before Wave 1
@@ -58,6 +60,7 @@ var _enemies_node: Node2D
 var _projectiles_node: Node2D
 var _fx: FxManager
 var _sfx: SfxManager
+var _voice: VoiceManager
 var _music: MusicManager
 var _save: SaveManager
 var _hud: GameHud
@@ -73,6 +76,7 @@ func _ready() -> void:
 	_apply_saved_audio_settings()
 	_hud.set_sector_records(_save.get_all_sector_records())
 	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
+	_hud.set_general_avatar(_save.get_general_avatar())
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	_reset_camera()
 	_hud.show_menu()
@@ -127,6 +131,9 @@ func _build_scene_tree() -> void:
 	_sfx = SfxManager.new()
 	add_child(_sfx)
 
+	_voice = VoiceManager.new()
+	add_child(_voice)
+
 	_music = MusicManager.new()
 	add_child(_music)
 
@@ -147,6 +154,7 @@ func _connect_hud() -> void:
 	_hud.pause_menu_resumed.connect(_on_pause_menu_resumed)
 	_hud.mute_toggled.connect(_on_mute_toggled)
 	_hud.audio_settings_changed.connect(_on_audio_settings_changed)
+	_hud.avatar_style_changed.connect(_on_avatar_style_changed)
 	_hud.reset_save_requested.connect(_on_reset_save_requested)
 	_hud.restart_requested.connect(_on_restart_requested)
 	_hud.replay_sector_requested.connect(_on_replay_sector_requested)
@@ -250,6 +258,8 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 	max_lives = int(diff_cfg["start_lives"])
 	lives = max_lives
 	total_kills = 0
+	_callout_cd = randf_range(16.0, 26.0)
+	_leak_taunt_cd = 0.0
 	current_wave_index = -1
 	inter_wave_timer = 0.0
 	waiting_for_next_wave = true
@@ -262,7 +272,9 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 	game_speed = 1.0
 	Engine.time_scale = 1.0
 	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
+	_fx.process_mode = Node.PROCESS_MODE_INHERIT
 	_hud.hide_pause_menu()
+	_voice.stop_all()
 	_music.set_paused_duck(false)
 	_music.set_mode(MusicManager.Mode.FESTIVE if _is_festive_map() else MusicManager.Mode.COMBAT)
 
@@ -290,6 +302,8 @@ func _on_restart_requested() -> void:
 	game_speed = 1.0
 	Engine.time_scale = 1.0
 	_sim_world.process_mode = Node.PROCESS_MODE_INHERIT
+	_fx.process_mode = Node.PROCESS_MODE_INHERIT
+	_voice.stop_all()
 	_music.set_paused_duck(false)
 	_music.set_mode(MusicManager.Mode.MENU)
 	_hud.set_sector_records(_save.get_all_sector_records())
@@ -313,6 +327,10 @@ func _process(delta: float) -> void:
 	# Ability cooldown
 	if airstrike_cd > 0.0:
 		airstrike_cd = maxf(0.0, airstrike_cd - delta)
+	if _callout_cd > 0.0:
+		_callout_cd = maxf(0.0, _callout_cd - real_delta)
+	if _leak_taunt_cd > 0.0:
+		_leak_taunt_cd = maxf(0.0, _leak_taunt_cd - real_delta)
 
 	# Staggered Air Strike bombs
 	_update_pending_bombs(delta)
@@ -479,10 +497,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				if _hud.is_medals_hall_visible():
 					_hud.hide_medals_hall()
 					return
+				if _hud.is_about_overlay_visible():
+					_hud.hide_about_overlay()
+					return
 				if _hud.is_audio_overlay_visible():
 					_hud.hide_audio_overlay()
 					return
-			if _hud.is_medals_hall_visible() or _hud.is_audio_overlay_visible():
+			if _hud.is_medals_hall_visible() or _hud.is_about_overlay_visible() or _hud.is_audio_overlay_visible():
 				return
 			if kc >= KEY_A and kc <= KEY_Z:
 				var ch: String = char(int(kc))
@@ -711,7 +732,10 @@ func _trigger_airstrike(target_pos: Vector2) -> void:
 	var run_dir := Vector2(1.0, -0.25).normalized()
 	_fx.spawn_airstrike_jets(target_pos, run_dir)
 	_sfx.play("airstrike_jet", 1.5, 0.03, 0.0)
-	_fx.spawn_floating_text(target_pos + Vector2(0, -28), "HELLFIRE INBOUND!", Color(1.0, 0.45, 0.22))
+	if randf() < 0.80:
+		_voice.play_category("airstrike", 1.5)
+	else:
+		_fx.spawn_floating_text(target_pos + Vector2(0, -28), "HELLFIRE INBOUND!", Color(1.0, 0.50, 0.24), 1.2, false)
 
 	var st: Dictionary = _save.get_stats()
 	st["airstrikes_called"] = int(st.get("airstrikes_called", 0)) + 1
@@ -905,9 +929,10 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 	cash += enemy.reward
 	total_kills += 1
 	var killer_id: String = ""
+	var turret_promoted: bool = false
 	if killer_turret != null and is_instance_valid(killer_turret) and killer_turret is Turret:
 		var kt := killer_turret as Turret
-		kt.register_kill()
+		turret_promoted = kt.register_kill()
 		killer_id = String(kt.config.get("id", ""))
 
 	var is_boss := (enemy.enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy.enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
@@ -952,6 +977,16 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 		else:
 			_sfx.play("explosion_small", -3.0, 0.14, 0.05)
 
+	if turret_promoted:
+		_voice.play_category("promotion", 2.0)
+		_callout_cd = maxf(_callout_cd, 22.0)
+	elif is_boss and randf() < 0.85:
+		_voice.play_category("kill", 1.8)
+		_callout_cd = randf_range(26.0, 42.0)
+	elif _callout_cd <= 0.0 and (is_heavy or enemy.enemy_type == EnemyData.EnemyType.APC or enemy.enemy_type == EnemyData.EnemyType.UAV_CARRIER):
+		_voice.play_category("kill", 2.5)
+		_callout_cd = randf_range(34.0, 52.0)
+
 	_refresh_hud()
 
 func _on_enemy_reached_base(enemy: Enemy) -> void:
@@ -959,6 +994,9 @@ func _on_enemy_reached_base(enemy: Enemy) -> void:
 	_sfx.play("base_hit", 0.0, 0.04, 0.08)
 	_fx.spawn_explosion(map_data["base_pos"], 38.0, true)
 	_fx.spawn_floating_text(map_data["base_pos"] + Vector2(-20, -35), "-%d HQ" % enemy.lives_cost, Color(0.98, 0.28, 0.24))
+	if lives > 0 and _leak_taunt_cd <= 0.0:
+		_voice.play_category("leak_air" if enemy.is_air else "leak_ground", 2.0)
+		_leak_taunt_cd = 6.0
 	_add_camera_shake(8.0)
 
 	if lives <= 0:
@@ -1013,6 +1051,10 @@ func _trigger_end_game(victory: bool) -> void:
 		_check_medals()
 		_hud.set_sector_records(_save.get_all_sector_records())
 		_music.play_victory_stinger()
+		# Launch pompous celebratory fireworks over Command HQ behind the Victory screen!
+		_fx.process_mode = Node.PROCESS_MODE_ALWAYS
+		var fw_count := 12 if (int(eval_res.get("rank_num", 1)) >= 35 or int(difficulty) >= int(WaveData.Difficulty.HARD)) else 7
+		_fx.spawn_victory_fireworks(map_data["base_pos"], fw_count)
 		_hud.show_end_screen(true, String(map_data["name"]), cleared, waves.size(), total_kills, String(diff_cfg["name"]), _get_next_sector_id() != "", eval_res, is_new_best, {})
 	else:
 		st["defeats"] = int(st.get("defeats", 0)) + 1
@@ -1040,6 +1082,9 @@ func _on_upgrade_selected() -> void:
 		st["cryo_builds_upgrades"] = int(st.get("cryo_builds_upgrades", 0)) + 1
 	if not selected_turret.can_upgrade():
 		st["max_level_upgrades"] = int(st.get("max_level_upgrades", 0)) + 1
+		if randf() < 0.75:
+			var uq := _voice.play_category("upgrade", 1.8)
+			_fx.spawn_floating_text(selected_turret.position + Vector2(0, -40), uq, Color(0.98, 0.88, 0.34), 2.2, true)
 	_check_medals()
 	_refresh_hud()
 
@@ -1146,12 +1191,14 @@ func _apply_saved_audio_settings() -> void:
 	var mu_vol: float = float(a["music_volume"])
 	var mu_muted: bool = bool(a["music_muted"])
 	_sfx.set_audio_state(s_vol, s_muted, m_muted)
+	_voice.set_audio_state(s_vol, s_muted, m_muted)
 	_music.set_audio_state(mu_vol, mu_muted, m_muted)
 	_hud.set_audio_state(m_muted, s_vol, s_muted, mu_vol, mu_muted)
 
 func _on_audio_settings_changed(master_muted: bool, sfx_vol: float, sfx_muted: bool, music_vol: float, music_muted: bool) -> void:
 	_save.set_audio_settings(master_muted, sfx_vol, sfx_muted, music_vol, music_muted)
 	_sfx.set_audio_state(sfx_vol, sfx_muted, master_muted)
+	_voice.set_audio_state(sfx_vol, sfx_muted, master_muted)
 	_music.set_audio_state(music_vol, music_muted, master_muted)
 	_refresh_hud()
 
@@ -1163,6 +1210,10 @@ func _on_mute_toggled() -> void:
 	if not next_master:
 		_sfx.play("ui_click")
 	_refresh_hud()
+
+func _on_avatar_style_changed(style: String) -> void:
+	_sfx.play("ui_click")
+	_save.set_general_avatar(style)
 
 func _on_reset_save_requested() -> void:
 	_sfx.play("ui_click")
