@@ -1586,56 +1586,66 @@ func _draw_rocks() -> void:
 		draw_colored_polygon(_scale_offset_poly(verts, 0.50, p + Vector2(-3.0, -3.0)), c_lit)
 		draw_line(p + Vector2(-4.0, 1.0), p + Vector2(3.5, -2.5), Color(0.12, 0.14, 0.17, 0.55), 1.2, true)
 
+func _get_pad_scale() -> float:
+	if OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or (OS.has_feature("web") and DisplayServer.is_touchscreen_available()):
+		return 1.20
+	return 1.0
+
 func _draw_pads_static() -> void:
 	var pads: Array = map_data["pads"]
+	var ps: float = _get_pad_scale()
 	var pad_base := Color(0.30, 0.27, 0.22, 0.96) if _is_desert else (Color(0.24, 0.28, 0.33, 0.96) if _is_tundra else Color(0.22, 0.23, 0.20, 0.96))
 	var pad_top := Color(0.41, 0.37, 0.30, 0.96) if _is_desert else (Color(0.40, 0.45, 0.50, 0.96) if _is_tundra else Color(0.32, 0.33, 0.29, 0.96))
 
 	for idx in range(pads.size()):
 		var pos: Vector2 = pads[idx]
 
-		draw_circle(pos + Vector2(3.5, 4.2), 27.0, Color(0.06, 0.12, 0.22, 0.34) if _is_tundra else Color(0.0, 0.0, 0.0, 0.34))
-		draw_circle(pos, 26.5, Color(0.11, 0.12, 0.14, 0.40))
+		draw_circle(pos + Vector2(3.5, 4.2) * ps, 27.0 * ps, Color(0.06, 0.12, 0.22, 0.34) if _is_tundra else Color(0.0, 0.0, 0.0, 0.34))
+		draw_circle(pos, 26.5 * ps, Color(0.11, 0.12, 0.14, 0.40))
 
 		var oct := PackedVector2Array()
 		var oct_top := PackedVector2Array()
 		for k in range(8):
 			var a: float = float(k) * (TAU / 8.0) + PI / 8.0
-			oct.append(pos + Vector2.from_angle(a) * 25.0)
-			oct_top.append(pos + Vector2(-1.0, -1.0) + Vector2.from_angle(a) * 22.8)
+			oct.append(pos + Vector2.from_angle(a) * (25.0 * ps))
+			oct_top.append(pos + Vector2(-1.0, -1.0) * ps + Vector2.from_angle(a) * (22.8 * ps))
 		draw_colored_polygon(oct, pad_base)
 		draw_colored_polygon(oct_top, pad_top)
 		var oct_closed := PackedVector2Array(oct)
 		oct_closed.append(oct[0])
-		draw_polyline(oct_closed, Color(0.10, 0.12, 0.14, 0.90), 1.4, true)
-		draw_arc(pos, 22.8, PI * 0.85, PI * 1.65, 16, Color(0.76, 0.82, 0.88, 0.62) if _is_tundra else Color(0.64, 0.60, 0.50, 0.55), 1.6, true)
+		draw_polyline(oct_closed, Color(0.10, 0.12, 0.14, 0.90), 1.5 * ps, true)
+		draw_arc(pos, 22.8 * ps, PI * 0.85, PI * 1.65, 16, Color(0.76, 0.82, 0.88, 0.62) if _is_tundra else Color(0.64, 0.60, 0.50, 0.55), 1.6 * ps, true)
 
-		draw_circle(pos, 18.2, Color(0.10, 0.12, 0.14, 0.96))
-		draw_circle(pos + Vector2(1.4, 1.4), 16.2, Color(0.15, 0.17, 0.19, 0.95))
-		draw_arc(pos, 18.2, -PI * 0.15, PI * 0.65, 16, Color(0.46, 0.50, 0.54, 0.55), 1.4, true)
+		draw_circle(pos, 18.2 * ps, Color(0.10, 0.12, 0.14, 0.96))
+		draw_circle(pos + Vector2(1.4, 1.4) * ps, 16.2 * ps, Color(0.15, 0.17, 0.19, 0.95))
+		draw_arc(pos, 18.2 * ps, -PI * 0.15, PI * 0.65, 16, Color(0.46, 0.50, 0.54, 0.55), 1.4 * ps, true)
 
-		for gy: float in [-8.0, -3.0, 3.0, 8.0]:
-			var half_l: float = sqrt(maxf(0.0, 14.5 * 14.5 - gy * gy))
-			draw_line(pos + Vector2(-half_l, gy), pos + Vector2(half_l, gy), Color(0.08, 0.09, 0.10, 0.78), 1.3)
-		draw_line(pos + Vector2(0, -14.5), pos + Vector2(0, 14.5), Color(0.24, 0.27, 0.30, 0.85), 2.2)
+		var gr_r: float = 14.5 * ps
+		for gy_base: float in [-8.0, -3.0, 3.0, 8.0]:
+			var gy: float = gy_base * ps
+			var half_l: float = sqrt(maxf(0.0, gr_r * gr_r - gy * gy))
+			draw_line(pos + Vector2(-half_l, gy), pos + Vector2(half_l, gy), Color(0.08, 0.09, 0.10, 0.78), 1.3 * ps)
+		draw_line(pos + Vector2(0, -gr_r), pos + Vector2(0, gr_r), Color(0.24, 0.27, 0.30, 0.85), 2.2 * ps)
 
 		for b in range(4):
 			var ba: float = PI * 0.25 + float(b) * PI * 0.5
-			var bp: Vector2 = pos + Vector2.from_angle(ba) * 19.8
-			draw_circle(bp, 2.2, Color(0.12, 0.13, 0.14))
-			draw_circle(bp + Vector2(-0.5, -0.5), 1.4, Color(0.54, 0.58, 0.62))
+			var bp: Vector2 = pos + Vector2.from_angle(ba) * (19.8 * ps)
+			draw_circle(bp, 2.2 * ps, Color(0.12, 0.13, 0.14))
+			draw_circle(bp + Vector2(-0.5, -0.5) * ps, 1.4 * ps, Color(0.54, 0.58, 0.62))
 
 		if _is_christmas:
 			# Festive evergreen holly wreath with red berries & gold bulbs around turret hardpoint!
-			draw_arc(pos, 23.6, 0.0, TAU, 32, Color(0.12, 0.42, 0.18, 0.85), 3.4, true)
+			draw_arc(pos, 23.6 * ps, 0.0, TAU, 32, Color(0.12, 0.42, 0.18, 0.85), 3.4 * ps, true)
 			for w_i in range(8):
 				var wa: float = float(w_i) * (TAU / 8.0)
-				var wp: Vector2 = pos + Vector2.from_angle(wa) * 23.6
+				var wp: Vector2 = pos + Vector2.from_angle(wa) * (23.6 * ps)
 				var dot_c := Color(0.96, 0.20, 0.22) if (w_i % 2 == 0) else Color(1.0, 0.86, 0.28)
-				draw_circle(wp, 1.9, dot_c)
+				draw_circle(wp, 1.9 * ps, dot_c)
 
 func _draw_pads_dynamic(ci: Node2D) -> void:
 	var pads: Array = map_data["pads"]
+	var ps: float = _get_pad_scale()
+	var is_touch_vis: bool = ps > 1.01
 	var pulse: float = 0.5 + 0.5 * sin(_time * 4.5)
 	for idx in range(pads.size()):
 		if occupied_pads.has(idx):
@@ -1648,30 +1658,32 @@ func _draw_pads_dynamic(ci: Node2D) -> void:
 				var fill_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.13) if placement_affordable else Color(0.95, 0.22, 0.22, 0.13)
 				var edge_col := Color(placement_accent.r, placement_accent.g, placement_accent.b, 0.82) if placement_affordable else Color(0.95, 0.28, 0.24, 0.84)
 				ci.draw_circle(pos, placement_range, fill_col)
-				ci.draw_arc(pos, placement_range, 0.0, TAU, 72, edge_col, 2.2, true)
-				ci.draw_circle(pos, 24.0, Color(ring_col.r, ring_col.g, ring_col.b, 0.26))
-				ci.draw_arc(pos, 26.2, 0.0, TAU, 36, ring_col, 2.8, true)
+				ci.draw_arc(pos, placement_range, 0.0, TAU, 72, edge_col, 2.4 if is_touch_vis else 2.2, true)
+				ci.draw_circle(pos, 24.0 * ps, Color(ring_col.r, ring_col.g, ring_col.b, 0.26))
+				ci.draw_arc(pos, 26.2 * ps, 0.0, TAU, 36, ring_col, 3.0 if is_touch_vis else 2.8, true)
 				if placement_confirm_hint != "":
 					var font := ThemeDB.fallback_font
-					var fsize := 13
+					var fsize := 15 if is_touch_vis else 13
 					var tsz := font.get_string_size(placement_confirm_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
-					var lbl_y: float = pos.y - 36.0
-					if lbl_y < 52.0:
-						lbl_y = pos.y + 48.0
-					var box := Rect2(pos.x - tsz.x * 0.5 - 9.0, lbl_y - float(fsize) - 4.0, tsz.x + 18.0, float(fsize) + 10.0)
-					ci.draw_rect(box, Color(0.05, 0.07, 0.05, 0.92))
-					ci.draw_rect(box, edge_col, false, 1.6)
+					var lbl_y: float = pos.y - (42.0 if is_touch_vis else 36.0)
+					if lbl_y < 56.0:
+						lbl_y = pos.y + (54.0 if is_touch_vis else 48.0)
+					var box := Rect2(pos.x - tsz.x * 0.5 - 10.0, lbl_y - float(fsize) - 4.0, tsz.x + 20.0, float(fsize) + 10.0)
+					ci.draw_rect(box, Color(0.05, 0.07, 0.05, 0.94))
+					ci.draw_rect(box, edge_col, false, 1.8)
 					ci.draw_string(font, Vector2(pos.x - tsz.x * 0.5, lbl_y), placement_confirm_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color.WHITE if placement_affordable else Color(1.0, 0.48, 0.42))
 			else:
-				ci.draw_circle(pos, 17.5, Color(ring_col.r, ring_col.g, ring_col.b, 0.14 + pulse * 0.08))
-				ci.draw_arc(pos, 22.5, 0.0, TAU, 32, ring_col, 2.2, true)
-			ci.draw_line(pos + Vector2(-7, 0), pos + Vector2(7, 0), ring_col, 1.6)
-			ci.draw_line(pos + Vector2(0, -7), pos + Vector2(0, 7), ring_col, 1.6)
+				ci.draw_circle(pos, 17.5 * ps, Color(ring_col.r, ring_col.g, ring_col.b, 0.14 + pulse * 0.08))
+				ci.draw_arc(pos, 22.5 * ps, 0.0, TAU, 32, ring_col, 2.4 if is_touch_vis else 2.2, true)
+			var ch: float = 7.0 * ps
+			ci.draw_line(pos + Vector2(-ch, 0), pos + Vector2(ch, 0), ring_col, 1.8 if is_touch_vis else 1.6)
+			ci.draw_line(pos + Vector2(0, -ch), pos + Vector2(0, ch), ring_col, 1.8 if is_touch_vis else 1.6)
 		else:
-			var idle_alpha: float = 0.68 if is_hovered else 0.38
-			var idle_col := Color(0.26, 0.86, 0.46, idle_alpha)
-			ci.draw_arc(pos, 21.8, 0.0, TAU, 32, idle_col, 1.8 if not is_hovered else 2.4, true)
-			ci.draw_circle(pos, 2.8, Color(0.26, 0.86, 0.46, idle_alpha * 0.9))
+			var idle_alpha: float = 0.72 if is_hovered else (0.50 if is_touch_vis else 0.38)
+			var idle_col := Color(0.26, 0.88, 0.48, idle_alpha)
+			var ring_w: float = (2.6 if is_hovered else 2.2) if is_touch_vis else (2.4 if is_hovered else 1.8)
+			ci.draw_arc(pos, 21.8 * ps, 0.0, TAU, 32, idle_col, ring_w, true)
+			ci.draw_circle(pos, 3.0 * ps, Color(0.26, 0.88, 0.48, idle_alpha * 0.92))
 
 func _draw_hq_fortress() -> void:
 	var bp: Vector2 = map_data["base_pos"]

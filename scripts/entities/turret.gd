@@ -45,7 +45,10 @@ var _last_drawn_recoil: float = -1.0
 var _last_drawn_laser: bool = false
 var _cryo_redraw_accum: float = 0.0
 var _turret_redraw_accum: float = 0.0
+const MOBILE_VISUAL_SCALE: float = 1.20
+
 var _is_mobile_perf: bool = false
+var _vis_scale: float = 1.0
 var _bake_part: String = "" # "", "base", or "head"
 var _use_cached_sprite: bool = false
 var _sprite_cache: TurretSpriteCache = null
@@ -94,21 +97,22 @@ func setup(
 	_on_shake = on_shake
 	_sprite_cache = sprite_cache
 	_is_mobile_perf = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	_vis_scale = MOBILE_VISUAL_SCALE if _is_mobile_perf else 1.0
 	_turret_redraw_accum = randf_range(0.0, 0.05)
 	z_index = 22
 	# Cache base & rotating head for all 6 combat turrets; keep DRONE pad dynamic for docked/hunting/rearm/hold states
 	if _sprite_cache != null and turret_type != TurretData.TurretType.DRONE:
 		_use_cached_sprite = true
-		var inv_sc: float = 1.0 / TurretSpriteCache.BAKE_SCALE
+		var sp_sc: float = _vis_scale / TurretSpriteCache.BAKE_SCALE
 		_base_sprite = Sprite2D.new()
 		_base_sprite.texture = _sprite_cache.get_base_texture(turret_type, level)
-		_base_sprite.scale = Vector2(inv_sc, inv_sc)
+		_base_sprite.scale = Vector2(sp_sc, sp_sc)
 		_base_sprite.z_index = 0
 		add_child(_base_sprite)
 
 		_head_sprite = Sprite2D.new()
 		_head_sprite.texture = _sprite_cache.get_head_texture(turret_type, level)
-		_head_sprite.scale = Vector2(inv_sc, inv_sc)
+		_head_sprite.scale = Vector2(sp_sc, sp_sc)
 		_head_sprite.rotation = turret_angle
 		_head_sprite.z_index = 1
 		add_child(_head_sprite)
@@ -255,7 +259,7 @@ func _process(delta: float) -> void:
 	if _use_cached_sprite and _head_sprite != null:
 		_head_sprite.rotation = turret_angle
 		if recoil > 0.01:
-			_head_sprite.position = -Vector2.from_angle(turret_angle) * recoil
+			_head_sprite.position = -Vector2.from_angle(turret_angle) * (recoil * _vis_scale)
 		elif _head_sprite.position != Vector2.ZERO:
 			_head_sprite.position = Vector2.ZERO
 		return
@@ -630,29 +634,33 @@ func _draw() -> void:
 		if selected:
 			var r: float = get_range()
 			draw_circle(Vector2.ZERO, r, Color(accent.r, accent.g, accent.b, 0.09))
-			draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(accent.r, accent.g, accent.b, 0.78), 2.0, false)
-			draw_arc(Vector2.ZERO, 26.5, 0.0, TAU, 28, Color(1.0, 0.96, 0.75, 0.94), 2.4, false)
+			draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(accent.r, accent.g, accent.b, 0.80), 2.2, false)
+			draw_arc(Vector2.ZERO, 26.5 * _vis_scale, 0.0, TAU, 28, Color(1.0, 0.96, 0.75, 0.95), 2.6, false)
 		var vet_tier_c := get_veteran_tier()
 		if vet_tier_c > 0:
 			var gold_c := Color(1.0, 0.84, 0.24)
 			for i in range(vet_tier_c):
-				var cy := -21.5 - float(i) * 4.0
+				var cy := -21.5 * _vis_scale - float(i) * (4.4 * _vis_scale)
+				var cw := 5.8 * _vis_scale
 				var pts := PackedVector2Array([
-					Vector2(-5.4, cy + 2.4),
-					Vector2(0.0, cy - 1.8),
-					Vector2(5.4, cy + 2.4),
+					Vector2(-cw, cy + 2.6 * _vis_scale),
+					Vector2(0.0, cy - 2.0 * _vis_scale),
+					Vector2(cw, cy + 2.6 * _vis_scale),
 				])
-				draw_polyline(pts, Color(0.06, 0.06, 0.05, 0.95), 3.6, false)
-				draw_polyline(pts, gold_c, 1.8, false)
+				draw_polyline(pts, Color(0.06, 0.06, 0.05, 0.95), 4.0, false)
+				draw_polyline(pts, gold_c, 2.2, false)
 		return
 
-	# Selection range ring drawn behind turret
+	# Selection range ring drawn behind turret (unscaled real gameplay range)
 	if selected and _bake_part == "":
 		var r: float = get_range()
 		draw_circle(Vector2.ZERO, r, Color(accent.r, accent.g, accent.b, 0.09))
 		draw_arc(Vector2.ZERO, r, 0.0, TAU, 72, Color(accent.r, accent.g, accent.b, 0.78), 2.0, true)
 		draw_arc(Vector2.ZERO, r - 6.0, 0.0, TAU, 72, Color(accent.r, accent.g, accent.b, 0.18), 1.0, true)
-		draw_arc(Vector2.ZERO, 26.5, 0.0, TAU, 40, Color(1.0, 0.96, 0.75, 0.94), 2.4, true)
+		draw_arc(Vector2.ZERO, 26.5 * _vis_scale, 0.0, TAU, 40, Color(1.0, 0.96, 0.75, 0.94), 2.4, true)
+
+	if _bake_part == "" and _vis_scale > 1.01:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(_vis_scale, _vis_scale))
 
 	# Heavy armored octagonal steel hardpoint base + cast shadow
 	draw_circle(Vector2(4.2, 5.2), 22.0, Color(0.0, 0.0, 0.0, 0.44))

@@ -301,8 +301,8 @@ func _get_playable_vertical_bounds() -> Vector2:
 		max_y = maxf(max_y, by)
 	if min_y >= max_y:
 		return Vector2(0.0, mh)
-	# Include pad/turret radius clearance (34 world px) so top & bottom rows sit clear of HUD bars
-	return Vector2(maxf(0.0, min_y - 34.0), minf(mh, max_y + 34.0))
+	# Include scaled pad/turret radius clearance (38 world px) so top & bottom rows sit clear of HUD bars
+	return Vector2(maxf(0.0, min_y - 38.0), minf(mh, max_y + 38.0))
 
 func _get_fit_zoom() -> float:
 	var vp: Vector2 = get_viewport_rect().size

@@ -147,7 +147,9 @@ func _draw() -> void:
 		draw_line(Vector2.ZERO, end_local, Color(accent.r, accent.g, accent.b, 0.82), 2.4, use_aa)
 		draw_line(Vector2.ZERO, end_local, Color(0.95, 1.0, 0.86, 0.96), 1.1, use_aa)
 
-	# 3. Altitude ground shadow
+	# 3. Altitude ground shadow + 4. Quad-rotor Tactical Hunter-Killer UCAV silhouette
+	if _is_mobile_perf:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.22, 1.22))
 	var sh := Vector2(18.0, 22.0)
 	draw_circle(sh, 10.0, Color(0.0, 0.0, 0.0, 0.18))
 

@@ -191,7 +191,7 @@ func set_touch_mode(enabled: bool) -> void:
 
 func get_hud_safe_margins() -> Dictionary:
 	var top_bar_h: float = 54.0 if _is_touch_mode else 58.0
-	var bot_bar_h: float = 84.0 if _is_touch_mode else 104.0
+	var bot_bar_h: float = 90.0 if _is_touch_mode else 104.0
 	return {
 		"top": _safe_pad_t + top_bar_h,
 		"bottom": _safe_pad_b + bot_bar_h,
@@ -233,75 +233,105 @@ func _apply_touch_mode_layout() -> void:
 	_top_bar.offset_bottom = top_off + top_h
 	_top_bar.add_theme_stylebox_override("panel", _make_box(Color(0.07, 0.09, 0.08, 0.78) if _is_touch_mode else COL_BG, COL_BORDER, 4, 1, 12 if _is_touch_mode else 14, 4 if _is_touch_mode else 6))
 	var btn_h: float = 36.0 if _is_touch_mode else 28.0
+	var top_btn_fsize: int = 14 if _is_touch_mode else 13
+	if _sector_label != null:
+		_sector_label.add_theme_font_size_override("font_size", 17 if _is_touch_mode else 15)
+	if _diff_label != null:
+		_diff_label.add_theme_font_size_override("font_size", 15 if _is_touch_mode else 13)
+	if _cash_label != null:
+		_cash_label.add_theme_font_size_override("font_size", 20 if _is_touch_mode else 17)
+	if _lives_label != null:
+		_lives_label.add_theme_font_size_override("font_size", 18 if _is_touch_mode else 16)
+	if _wave_label != null:
+		_wave_label.add_theme_font_size_override("font_size", 17 if _is_touch_mode else 15)
 	if _pause_btn != null:
 		_pause_btn.custom_minimum_size = Vector2(44.0 if _is_touch_mode else 36.0, btn_h)
+		_pause_btn.add_theme_font_size_override("font_size", top_btn_fsize)
 	for sb in _speed_btns.values():
-		(sb as Button).custom_minimum_size = Vector2(44.0 if _is_touch_mode else 38.0, btn_h)
+		var sbtn: Button = sb
+		sbtn.custom_minimum_size = Vector2(44.0 if _is_touch_mode else 38.0, btn_h)
+		sbtn.add_theme_font_size_override("font_size", top_btn_fsize)
 	if _mute_btn != null:
-		_mute_btn.custom_minimum_size = Vector2(68.0 if _is_touch_mode else 58.0, btn_h)
+		_mute_btn.custom_minimum_size = Vector2(72.0 if _is_touch_mode else 58.0, btn_h)
+		_mute_btn.add_theme_font_size_override("font_size", top_btn_fsize)
 	if _menu_btn != null:
-		_menu_btn.custom_minimum_size = Vector2(68.0 if _is_touch_mode else 58.0, btn_h)
+		_menu_btn.custom_minimum_size = Vector2(72.0 if _is_touch_mode else 58.0, btn_h)
+		_menu_btn.add_theme_font_size_override("font_size", top_btn_fsize)
 
 	if _banner_panel != null:
 		_banner_panel.offset_top = 56.0 if _is_touch_mode else 62.0
-		_banner_panel.offset_bottom = 92.0 if _is_touch_mode else 98.0
+		_banner_panel.offset_bottom = 96.0 if _is_touch_mode else 98.0
+	if _banner_label != null:
+		_banner_label.add_theme_font_size_override("font_size", 18 if _is_touch_mode else 15)
 
-	var card_h: float = 66.0 if _is_touch_mode else 66.0
-	var card_w: float = 90.0 if _is_touch_mode else 86.0
+	var card_h: float = 70.0 if _is_touch_mode else 66.0
+	var card_w: float = 82.0 if _is_touch_mode else 86.0
 	var dock_pad_y: int = 5 if _is_touch_mode else 7
 	var dock_h: float = card_h + float(dock_pad_y * 2 + 2)
 	var bot_gap: float = 4.0 if _is_touch_mode else 10.0
+	var side_gap: float = 6.0 if _is_touch_mode else 10.0
 	_bottom_dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 6, dock_pad_y))
-	if _is_touch_mode:
-		_bottom_dock.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-		_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_BOTH
-		_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
-		_bottom_dock.offset_left = 0.0
-		_bottom_dock.offset_right = 0.0
-	else:
-		_bottom_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-		_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_END
-		_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
-		_bottom_dock.offset_left = 10.0
-		_bottom_dock.offset_right = 10.0
+	_bottom_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_END
+	_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_bottom_dock.offset_left = side_gap
+	_bottom_dock.offset_right = side_gap
 	_bottom_dock.offset_top = -bot_gap - dock_h
 	_bottom_dock.offset_bottom = -bot_gap
 	for t_type in _turret_btns.keys():
 		var cfg := TurretData.get_config(t_type)
 		var btn: Button = _turret_btns[t_type]
 		btn.custom_minimum_size = Vector2(card_w, card_h)
-		btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+		btn.add_theme_font_size_override("font_size", 12 if _is_touch_mode else 10)
 		if _is_touch_mode:
 			btn.text = "%s\n$%d\n%s" % [cfg["short"], int(cfg["base_cost"]), cfg["role"]]
 		else:
 			btn.text = "[%s] %s\n$%d\n%s" % [cfg["hotkey"], cfg["short"], int(cfg["base_cost"]), cfg["role"]]
 
 	if _airstrike_btn != null:
-		_airstrike_btn.custom_minimum_size = Vector2(102.0 if _is_touch_mode else 96.0, card_h)
-		_airstrike_btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+		_airstrike_btn.custom_minimum_size = Vector2(96.0 if _is_touch_mode else 96.0, card_h)
+		_airstrike_btn.add_theme_font_size_override("font_size", 12 if _is_touch_mode else 10)
 	if _next_wave_btn != null:
-		_next_wave_btn.custom_minimum_size = Vector2(100.0 if _is_touch_mode else 94.0, card_h)
-		_next_wave_btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+		_next_wave_btn.custom_minimum_size = Vector2(96.0 if _is_touch_mode else 94.0, card_h)
+		_next_wave_btn.add_theme_font_size_override("font_size", 12 if _is_touch_mode else 10)
 
+	if _inspector_panel != null:
+		_inspector_panel.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_AMBER, 5, 1, 8 if _is_touch_mode else 10, 4 if _is_touch_mode else 6))
+	if _insp_title != null:
+		_insp_title.add_theme_font_size_override("font_size", 14 if _is_touch_mode else 12)
+	if _insp_stats != null:
+		_insp_stats.add_theme_font_size_override("font_size", 13 if _is_touch_mode else 11)
 	if _insp_close_btn != null:
 		_insp_close_btn.visible = _is_touch_mode
-	var insp_btn_h: float = 38.0 if _is_touch_mode else 24.0
-	var insp_fsize: int = 12 if _is_touch_mode else 11
+		_insp_close_btn.custom_minimum_size = Vector2(30, 30) if _is_touch_mode else Vector2(36, 36)
+	var insp_btn_h: float = 34.0 if _is_touch_mode else 24.0
+	var insp_fsize: int = 13 if _is_touch_mode else 11
 	if _insp_upgrade_btn != null:
 		_insp_upgrade_btn.custom_minimum_size = Vector2(0, insp_btn_h)
 		_insp_upgrade_btn.add_theme_font_size_override("font_size", insp_fsize)
 	if _insp_target_btn != null:
-		_insp_target_btn.custom_minimum_size = Vector2(124.0 if _is_touch_mode else 90.0, insp_btn_h)
+		_insp_target_btn.custom_minimum_size = Vector2(118.0 if _is_touch_mode else 90.0, insp_btn_h)
 		_insp_target_btn.add_theme_font_size_override("font_size", insp_fsize)
 	if _insp_sell_btn != null:
-		_insp_sell_btn.custom_minimum_size = Vector2(114.0 if _is_touch_mode else 82.0, insp_btn_h)
+		_insp_sell_btn.custom_minimum_size = Vector2(100.0 if _is_touch_mode else 82.0, insp_btn_h)
 		_insp_sell_btn.add_theme_font_size_override("font_size", insp_fsize)
 	if _insp_drone_hold_btn != null:
-		_insp_drone_hold_btn.custom_minimum_size = Vector2(150.0 if _is_touch_mode else 124.0, insp_btn_h)
+		_insp_drone_hold_btn.custom_minimum_size = Vector2(142.0 if _is_touch_mode else 124.0, insp_btn_h)
 		_insp_drone_hold_btn.add_theme_font_size_override("font_size", insp_fsize)
 	if _insp_drone_assign_btn != null:
 		_insp_drone_assign_btn.custom_minimum_size = Vector2(0, insp_btn_h)
 		_insp_drone_assign_btn.add_theme_font_size_override("font_size", insp_fsize)
+	_insp_layout_key = ""
+
+	if _wave_preview_panel != null:
+		_wave_preview_panel.offset_left = side_gap
+		_wave_preview_panel.offset_right = side_gap
+		_wave_preview_panel.add_theme_stylebox_override("panel", _make_box(Color(0.07, 0.09, 0.08, 0.82 if _is_touch_mode else 0.88), COL_BORDER, 4, 1, 10, 4))
+	if _preview_wave_lbl != null:
+		_preview_wave_lbl.add_theme_font_size_override("font_size", 13 if _is_touch_mode else 11)
+	if _preview_units_lbl != null:
+		_preview_units_lbl.add_theme_font_size_override("font_size", 13 if _is_touch_mode else 11)
+	_last_preview_key = ""
 
 	if _pause_resume_btn != null:
 		_pause_resume_btn.text = "RESUME MISSION" if _is_touch_mode else "RESUME MISSION  [ESC]"
@@ -317,14 +347,13 @@ func _apply_touch_mode_layout() -> void:
 
 	_update_wave_preview_offset(false)
 
-func _update_wave_preview_offset(inspector_active_drone: bool) -> void:
+func _update_wave_preview_offset(_inspector_active_drone: bool) -> void:
 	if _wave_preview_panel == null:
 		return
-	var bot_clearance: float = 86.0 if _is_touch_mode else 96.0
-	if _is_touch_mode and _inspector_panel != null and _inspector_panel.visible:
-		bot_clearance = 148.0 if inspector_active_drone else 108.0
+	var bot_clearance: float = 88.0 if _is_touch_mode else 96.0
+	var strip_h: float = 30.0 if _is_touch_mode else 26.0
 	_wave_preview_panel.offset_bottom = -bot_clearance
-	_wave_preview_panel.offset_top = -bot_clearance - 28.0
+	_wave_preview_panel.offset_top = -bot_clearance - strip_h
 
 func _process(delta: float) -> void:
 	var real_delta: float = delta / maxf(0.01, Engine.time_scale)
@@ -631,13 +660,17 @@ func _build_inspector() -> void:
 	hdr_row.add_child(info_v)
 
 	_insp_title = Label.new()
-	_insp_title.add_theme_font_size_override("font_size", 13)
+	_insp_title.add_theme_font_size_override("font_size", 12)
 	_insp_title.add_theme_color_override("font_color", COL_AMBER)
+	_insp_title.clip_text = true
+	_insp_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	info_v.add_child(_insp_title)
 
 	_insp_stats = Label.new()
 	_insp_stats.add_theme_font_size_override("font_size", 11)
 	_insp_stats.add_theme_color_override("font_color", COL_TEXT)
+	_insp_stats.clip_text = true
+	_insp_stats.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	info_v.add_child(_insp_stats)
 
 	_insp_close_btn = Button.new()
@@ -2280,7 +2313,7 @@ func update_wave_preview(visible_now: bool, next_wave_num: int, total_waves: int
 		pill.add_theme_stylebox_override("panel", _make_box(col.darkened(0.75), col, 3, 1, 5, 1))
 		var lbl := Label.new()
 		lbl.text = String(t_item[0])
-		lbl.add_theme_font_size_override("font_size", 10)
+		lbl.add_theme_font_size_override("font_size", 12 if _is_touch_mode else 10)
 		lbl.add_theme_color_override("font_color", col.lightened(0.15))
 		pill.add_child(lbl)
 		_preview_tags_box.add_child(pill)
@@ -2407,9 +2440,7 @@ func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = fal
 			_update_wave_preview_offset(false)
 		return
 	_inspector_panel.visible = true
-	if _is_touch_mode and _bottom_dock != null:
-		_bottom_dock.visible = false
-	elif _bottom_dock != null:
+	if _bottom_dock != null:
 		_bottom_dock.visible = true
 
 	var cfg := turret.config
@@ -2467,15 +2498,14 @@ func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = fal
 	if layout_key != _insp_layout_key:
 		_insp_layout_key = layout_key
 		if _is_touch_mode:
-			_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-			_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+			_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+			_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 			_inspector_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-			var bar_w: float = minf(safe_w - 20.0, 740.0)
-			var side_m: float = (safe_w - bar_w) * 0.5
-			_inspector_panel.offset_left = side_m
-			_inspector_panel.offset_right = -side_m
-			_inspector_panel.offset_bottom = -10.0
-			_inspector_panel.offset_top = -144.0 if is_drone else -102.0
+			var insp_w: float = clampf(safe_w - 846.0, 340.0, 430.0)
+			_inspector_panel.offset_right = -6.0
+			_inspector_panel.offset_left = -6.0 - insp_w
+			_inspector_panel.offset_bottom = -4.0
+			_inspector_panel.offset_top = -124.0 if is_drone else -88.0
 		else:
 			_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 			_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN

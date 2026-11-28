@@ -120,8 +120,9 @@ func setup(
 		_use_cached_sprite = true
 		_hull_sprite = Sprite2D.new()
 		_hull_sprite.texture = sprite_cache.get_texture(enemy_type, festive_mode)
-		var inv_sc: float = 1.0 / EnemySpriteCache.BAKE_SCALE
-		_hull_sprite.scale = Vector2(inv_sc, inv_sc)
+		var vis_sc: float = 1.24 if _is_mobile_perf else 1.0
+		var sp_sc: float = vis_sc / EnemySpriteCache.BAKE_SCALE
+		_hull_sprite.scale = Vector2(sp_sc, sp_sc)
 		_hull_sprite.rotation = heading
 		_hull_sprite.z_index = -1
 		add_child(_hull_sprite)
@@ -314,13 +315,14 @@ func _draw() -> void:
 	if _use_cached_sprite and not _bake_only:
 		# Cached Sprite2D draws the full procedural hull in 1 GPU quad; only draw dynamic rotor/status/HP overlay here!
 		if enemy_type == EnemyData.EnemyType.CHOPPER and not festive_mode:
+			var rsc: float = 1.24 if _is_mobile_perf else 1.0
 			for b in range(4):
 				var a: float = _rotor_angle + float(b) * (PI * 0.5)
 				var bd := Vector2.from_angle(a)
-				draw_line(bd * 3.0, bd * 21.5, Color(0.10, 0.11, 0.13, 0.86), 2.5, false)
-				draw_line(bd * 18.0, bd * 21.5, Color(0.92, 0.78, 0.22, 0.82), 2.2, false)
-			draw_circle(Vector2.ZERO, 3.8, Color(0.22, 0.25, 0.28))
-			draw_circle(Vector2.ZERO, 1.6, Color(0.55, 0.60, 0.64))
+				draw_line(bd * (3.0 * rsc), bd * (21.5 * rsc), Color(0.10, 0.11, 0.13, 0.86), 2.5 * rsc, false)
+				draw_line(bd * (18.0 * rsc), bd * (21.5 * rsc), Color(0.92, 0.78, 0.22, 0.82), 2.2 * rsc, false)
+			draw_circle(Vector2.ZERO, 3.8 * rsc, Color(0.22, 0.25, 0.28))
+			draw_circle(Vector2.ZERO, 1.6 * rsc, Color(0.55, 0.60, 0.64))
 		if _overlay_active:
 			_draw_damage_and_status()
 			_draw_health_bar()
@@ -1123,35 +1125,37 @@ func _draw_sky_fortress(hull: Color, trim: Color) -> void:
 		draw_circle(hub, 1.8, trim)
 
 func _draw_damage_and_status() -> void:
+	var vis_sc: float = 1.24 if _is_mobile_perf else 1.0
+	var eff_r: float = hit_radius * vis_sc
 	var hp_ratio: float = hp / maxf(1.0, max_hp)
 	if not festive_mode:
 		# Scorched battle damage & flickering fire core at low HP
 		if hp_ratio < 0.62:
-			draw_circle(_xf(Vector2(-4.0, 1.5)), hit_radius * 0.34, Color(0.05, 0.04, 0.03, 0.45))
+			draw_circle(_xf(Vector2(-4.0, 1.5) * vis_sc), eff_r * 0.34, Color(0.05, 0.04, 0.03, 0.45))
 		if hp_ratio < 0.35:
 			var flick: float = 0.65 + 0.35 * sin(_time * 24.0 + _phase_seed)
-			draw_circle(_xf(Vector2(-4.0, 1.5)), hit_radius * 0.22 * flick, Color(1.0, 0.46, 0.10, 0.85))
-			draw_circle(_xf(Vector2(-4.0, 1.5)), hit_radius * 0.11 * flick, Color(1.0, 0.92, 0.55, 0.92))
+			draw_circle(_xf(Vector2(-4.0, 1.5) * vis_sc), eff_r * 0.22 * flick, Color(1.0, 0.46, 0.10, 0.85))
+			draw_circle(_xf(Vector2(-4.0, 1.5) * vis_sc), eff_r * 0.11 * flick, Color(1.0, 0.92, 0.55, 0.92))
 	elif hp_ratio < 0.45:
 		# Overwound clockwork golden sparkle jitter when nearly ready to re-wrap!
 		var flick: float = 0.55 + 0.45 * sin(_time * 28.0 + _phase_seed)
-		draw_circle(_xf(Vector2(-2.0, 0.0)), hit_radius * 0.20 * flick, Color(1.0, 0.92, 0.40, 0.78))
+		draw_circle(_xf(Vector2(-2.0, 0.0) * vis_sc), eff_r * 0.20 * flick, Color(1.0, 0.92, 0.40, 0.78))
 
 	# Cryo frost crystalline ring overlay
 	var use_aa: bool = not _is_mobile_perf
 	if slow_timer > 0.0:
-		draw_arc(Vector2.ZERO, hit_radius + 2.0, 0.0, TAU, 14 if _is_mobile_perf else 24, Color(0.50, 0.92, 1.0, 0.68), 1.6, use_aa)
+		draw_arc(Vector2.ZERO, eff_r + 2.4, 0.0, TAU, 16 if _is_mobile_perf else 24, Color(0.50, 0.92, 1.0, 0.76), 2.2 if _is_mobile_perf else 1.6, use_aa)
 
 	# Trophy APS Active Protection electromagnetic intercept dome
 	if max_shield > 0.0 and shield > 0.0:
 		var s_ratio: float = clampf(shield / maxf(1.0, max_shield), 0.0, 1.0)
 		var pulse: float = 0.72 + 0.28 * sin(_time * 7.0 + _phase_seed)
-		var dome_r: float = hit_radius + 5.5
+		var dome_r: float = eff_r + 6.0
 		var flash_boost: float = clampf(_shield_flash / 0.16, 0.0, 1.0)
 		var fill_a: float = (0.09 + 0.08 * s_ratio) * pulse + flash_boost * 0.24
-		var edge_a: float = (0.45 + 0.42 * s_ratio) * pulse + flash_boost * 0.35
+		var edge_a: float = (0.48 + 0.42 * s_ratio) * pulse + flash_boost * 0.35
 		draw_circle(Vector2.ZERO, dome_r, Color(0.24, 0.84, 1.0, fill_a))
-		draw_arc(Vector2.ZERO, dome_r, 0.0, TAU, 18 if _is_mobile_perf else 32, Color(0.42, 0.92, 1.0, minf(1.0, edge_a)), 1.9 + flash_boost * 1.4, use_aa)
+		draw_arc(Vector2.ZERO, dome_r, 0.0, TAU, 18 if _is_mobile_perf else 32, Color(0.42, 0.92, 1.0, minf(1.0, edge_a)), (2.4 if _is_mobile_perf else 1.9) + flash_boost * 1.4, use_aa)
 		# Rotating APS radar intercept arcs
 		if not _is_mobile_perf:
 			for i in range(3):
@@ -1163,15 +1167,16 @@ func _draw_health_bar() -> void:
 	var has_shield_vis: bool = (max_shield > 0.0 and (shield > 0.0 or shield < max_shield))
 	if hp >= max_hp and not is_boss and not has_shield_vis:
 		return
+	var vis_sc: float = 1.24 if _is_mobile_perf else 1.0
 	var ratio: float = clampf(hp / maxf(1.0, max_hp), 0.0, 1.0)
-	var bar_w: float = 48.0 if is_boss else 30.0
-	var bar_h: float = 5.2 if is_boss else 3.8
-	var bar_pos := Vector2(-bar_w * 0.5, -hit_radius - 13.0)
+	var bar_w: float = (56.0 if is_boss else 36.0) if _is_mobile_perf else (48.0 if is_boss else 30.0)
+	var bar_h: float = (6.4 if is_boss else 5.0) if _is_mobile_perf else (5.2 if is_boss else 3.8)
+	var bar_pos := Vector2(-bar_w * 0.5, -hit_radius * vis_sc - (14.5 if _is_mobile_perf else 13.0))
 
 	# Sleek beveled dark steel frame
-	draw_rect(Rect2(bar_pos - Vector2(1.5, 1.5), Vector2(bar_w + 3.0, bar_h + 3.0)), Color(0.04, 0.05, 0.04, 0.92))
-	draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.14, 0.15, 0.14, 0.85))
-	var fill_col := Color(0.32, 0.90, 0.42)
+	draw_rect(Rect2(bar_pos - Vector2(1.5, 1.5), Vector2(bar_w + 3.0, bar_h + 3.0)), Color(0.04, 0.05, 0.04, 0.94))
+	draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.14, 0.15, 0.14, 0.88))
+	var fill_col := Color(0.32, 0.92, 0.44)
 	if ratio < 0.32:
 		fill_col = Color(0.96, 0.24, 0.20)
 	elif ratio < 0.62:
@@ -1183,11 +1188,12 @@ func _draw_health_bar() -> void:
 	# Cyan APS Shield bar stacked right above HP bar
 	if max_shield > 0.0:
 		var s_ratio: float = clampf(shield / maxf(1.0, max_shield), 0.0, 1.0)
-		var s_pos := bar_pos + Vector2(0.0, -4.6)
-		draw_rect(Rect2(s_pos - Vector2(1.2, 1.2), Vector2(bar_w + 2.4, 5.0)), Color(0.03, 0.06, 0.08, 0.90))
-		draw_rect(Rect2(s_pos, Vector2(bar_w, 2.6)), Color(0.10, 0.18, 0.22, 0.85))
+		var sh_h: float = 3.4 if _is_mobile_perf else 2.6
+		var s_pos := bar_pos + Vector2(0.0, -(sh_h + 2.2))
+		draw_rect(Rect2(s_pos - Vector2(1.2, 1.2), Vector2(bar_w + 2.4, sh_h + 2.4)), Color(0.03, 0.06, 0.08, 0.92))
+		draw_rect(Rect2(s_pos, Vector2(bar_w, sh_h)), Color(0.10, 0.18, 0.22, 0.88))
 		if s_ratio > 0.0:
-			draw_rect(Rect2(s_pos, Vector2(bar_w * s_ratio, 2.6)), Color(0.32, 0.88, 1.0, 0.96))
+			draw_rect(Rect2(s_pos, Vector2(bar_w * s_ratio, sh_h)), Color(0.32, 0.88, 1.0, 0.96))
 
 	if slow_timer > 0.0:
 		draw_rect(Rect2(bar_pos + Vector2(0.0, bar_h + 1.8), Vector2(bar_w * clampf(slow_timer / 3.0, 0.15, 1.0), 1.8)), Color(0.42, 0.88, 1.0, 0.92))
