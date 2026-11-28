@@ -6,6 +6,9 @@ const AIRSTRIKE_RADIUS: float = 120.0
 const INTER_WAVE_TIME: float = 14.0
 const HUD_TOP_SAFE: float = 58.0
 const HUD_BOTTOM_SAFE: float = 104.0
+const TOUCH_TAP_SLOP: float = 14.0
+const TOUCH_PAD_RADIUS: float = 42.0
+const TOUCH_ENEMY_RADIUS: float = 64.0
 
 var map_data: Dictionary = {}
 var waves: Array[Dictionary] = []
@@ -50,9 +53,32 @@ var _pan_dragged: bool = false
 var _last_mouse_screen: Vector2 = Vector2.ZERO
 var _secret_code_buf: String = ""
 
+# Touch & mobile lifecycle state
+var _is_touch_mode: bool = false
+var _touch_points: Dictionary = {} # touch_index -> Vector2 screen pos
+var _touch_start_pos: Vector2 = Vector2.ZERO
+var _touch_dragged: bool = false
+var _touch_had_multi: bool = false
+var _pinch_last_dist: float = 0.0
+var _pinch_last_mid: Vector2 = Vector2.ZERO
+var _preview_pad_index: int = -1
+var _airstrike_preview_active: bool = false
+var _airstrike_preview_pos: Vector2 = Vector2.ZERO
+var _bg_audio_suspended: bool = false
+var _hud_refresh_accum: float = 0.0
+var _medals_check_dirty: bool = false
+var _medals_check_accum: float = 0.0
+var _use_enemy_sprite_cache: bool = false
+var _pending_preview_map_id: String = ""
+var _preview_debounce_timer: float = 0.0
+var _active_enemies: Array[Enemy] = []
+var _wave_bonus_check_accum: float = 0.0
+
 # Scene nodes
 var _camera: Camera2D
 var _terrain: TerrainLayer
+var _enemy_sprite_cache: EnemySpriteCache
+var _turret_sprite_cache: TurretSpriteCache
 var _sim_world: Node2D
 var _decals: DecalLayer
 var _turrets_node: Node2D
@@ -73,6 +99,15 @@ func _ready() -> void:
 
 	_build_scene_tree()
 	_connect_hud()
+	_is_touch_mode = _detect_initial_touch_mode()
+	_hud.set_touch_mode(_is_touch_mode)
+	get_tree().set_quit_on_go_back(false)
+	if OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios"):
+		DisplayServer.screen_set_keep_on(true)
+		# Cap high-DPI 2560x1600+ mobile tablets to crisp 1280x800 viewport framebuffer (4x fewer GPU pixels/frame!)
+		var scr := DisplayServer.screen_get_size()
+		if maxi(scr.x, scr.y) > 1600:
+			get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
 	_apply_saved_audio_settings()
 	_hud.set_sector_records(_save.get_all_sector_records())
 	_hud.set_medals_data(_save.get_unlocked_medals(), _save.get_stats(), _save.get_all_sector_records())
@@ -82,6 +117,79 @@ func _ready() -> void:
 	_hud.show_menu()
 	_music.set_mode(MusicManager.Mode.MENU)
 	_refresh_hud()
+
+func _detect_initial_touch_mode() -> bool:
+	if OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios"):
+		return true
+	# iPadOS Safari spoofs macOS desktop User-Agent, so check touchscreen capability on Web too
+	if OS.has_feature("web") and DisplayServer.is_touchscreen_available():
+		return true
+	return false
+
+func _set_touch_mode(enabled: bool) -> void:
+	if _is_touch_mode == enabled:
+		return
+	_is_touch_mode = enabled
+	_preview_pad_index = -1
+	_airstrike_preview_active = false
+	if _hud != null:
+		_hud.set_touch_mode(enabled)
+	_clamp_camera_target()
+	_refresh_hud()
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED:
+			_touch_points.clear()
+			_panning = false
+			_flush_play_time()
+			if game_started and not game_over and not pause_menu_open:
+				_open_pause_menu()
+			if not _bg_audio_suspended:
+				_bg_audio_suspended = true
+				AudioServer.set_bus_mute(0, true)
+		NOTIFICATION_APPLICATION_FOCUS_OUT:
+			_touch_points.clear()
+			_panning = false
+			_flush_play_time()
+			if (OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios")) and game_started and not game_over and not pause_menu_open:
+				_open_pause_menu()
+		NOTIFICATION_APPLICATION_RESUMED:
+			if _bg_audio_suspended:
+				_bg_audio_suspended = false
+				AudioServer.set_bus_mute(0, false)
+				_apply_saved_audio_settings()
+			if _terrain != null and is_instance_valid(_terrain):
+				_terrain.rebake_terrain()
+			if _enemy_sprite_cache != null and is_instance_valid(_enemy_sprite_cache):
+				_enemy_sprite_cache.rebake_all()
+			if _turret_sprite_cache != null and is_instance_valid(_turret_sprite_cache):
+				_turret_sprite_cache.rebake_all()
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			_handle_back_action()
+
+func _handle_back_action() -> void:
+	if not game_started:
+		if _hud.is_medals_hall_visible():
+			_hud.hide_medals_hall()
+		elif _hud.is_about_overlay_visible():
+			_hud.hide_about_overlay()
+		elif _hud.is_audio_overlay_visible():
+			_hud.hide_audio_overlay()
+		return
+	if game_over:
+		_on_restart_requested()
+		return
+	if pause_menu_open:
+		if _hud.is_medals_hall_visible():
+			_hud.hide_medals_hall()
+		else:
+			_close_pause_menu()
+		return
+	if _has_active_mode():
+		_cancel_modes()
+	else:
+		_open_pause_menu()
 
 func _on_viewport_resized() -> void:
 	if _camera == null or map_data.is_empty():
@@ -103,6 +211,13 @@ func _build_scene_tree() -> void:
 	_terrain.z_index = 0
 	add_child(_terrain)
 	_terrain.setup(map_data)
+
+	_use_enemy_sprite_cache = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	if _use_enemy_sprite_cache:
+		_enemy_sprite_cache = EnemySpriteCache.new()
+		add_child(_enemy_sprite_cache)
+		_turret_sprite_cache = TurretSpriteCache.new()
+		add_child(_turret_sprite_cache)
 
 	_sim_world = Node2D.new()
 	add_child(_sim_world)
@@ -163,24 +278,71 @@ func _connect_hud() -> void:
 	_hud.sell_requested.connect(_on_sell_selected)
 	_hud.drone_hold_toggled.connect(_on_drone_hold_toggled)
 	_hud.drone_assign_requested.connect(_on_drone_assign_requested)
+	_hud.inspector_close_requested.connect(_on_inspector_close_requested)
+	_hud.title_easter_egg_tapped.connect(_on_title_easter_egg_tapped)
+
+func _get_hud_safe_margins() -> Dictionary:
+	if _hud != null and is_instance_valid(_hud):
+		return _hud.get_hud_safe_margins()
+	return {"top": HUD_TOP_SAFE, "bottom": HUD_BOTTOM_SAFE, "left": 8.0, "right": 8.0}
+
+func _get_playable_vertical_bounds() -> Vector2:
+	var mh: float = float(map_data["height"])
+	var min_y: float = mh
+	var max_y: float = 0.0
+	var pads: Array = map_data.get("pads", [])
+	for p in pads:
+		var py: float = (p as Vector2).y
+		min_y = minf(min_y, py)
+		max_y = maxf(max_y, py)
+	if map_data.has("base_pos"):
+		var by: float = (map_data["base_pos"] as Vector2).y
+		min_y = minf(min_y, by)
+		max_y = maxf(max_y, by)
+	if min_y >= max_y:
+		return Vector2(0.0, mh)
+	# Include pad/turret radius clearance (34 world px) so top & bottom rows sit clear of HUD bars
+	return Vector2(maxf(0.0, min_y - 34.0), minf(mh, max_y + 34.0))
 
 func _get_fit_zoom() -> float:
 	var vp: Vector2 = get_viewport_rect().size
-	var usable_w: float = maxf(320.0, vp.x - 16.0)
-	var usable_h: float = maxf(240.0, vp.y - HUD_TOP_SAFE - HUD_BOTTOM_SAFE)
+	var m := _get_hud_safe_margins()
+	if _is_touch_mode:
+		# Tablet framing: fill screen width unless a map's active pads/HQ span taller than the clear HUD window
+		var touch_w: float = maxf(320.0, vp.x - float(m["left"]) - float(m["right"]))
+		var fit_x: float = touch_w / float(map_data["width"])
+		var usable_h: float = maxf(240.0, vp.y - float(m["top"]) - float(m["bottom"]))
+		var bounds_y := _get_playable_vertical_bounds()
+		var fit_playable_y: float = usable_h / maxf(240.0, bounds_y.y - bounds_y.x)
+		return clampf(minf(fit_x, fit_playable_y), 0.55, 1.35)
+	var usable_w: float = maxf(320.0, vp.x - float(m["left"]) - float(m["right"]) - 16.0)
+	var usable_h: float = maxf(240.0, vp.y - float(m["top"]) - float(m["bottom"]))
 	var fit_x: float = usable_w / float(map_data["width"])
 	var fit_y: float = usable_h / float(map_data["height"])
 	return clampf(minf(fit_x, fit_y), 0.45, 1.2)
 
 func _reset_camera() -> void:
 	_cam_target_zoom = _get_fit_zoom()
-	var vertical_bias: float = (HUD_BOTTOM_SAFE - HUD_TOP_SAFE) * 0.5 / _cam_target_zoom
-	_cam_target_pos = Vector2(float(map_data["width"]) * 0.5, float(map_data["height"]) * 0.5 + vertical_bias)
+	var m := _get_hud_safe_margins()
+	var mw: float = float(map_data["width"])
+	var mh: float = float(map_data["height"])
+	if _is_touch_mode:
+		var vp: Vector2 = get_viewport_rect().size
+		var bounds_y := _get_playable_vertical_bounds()
+		var playable_mid_y: float = (bounds_y.x + bounds_y.y) * 0.5
+		var clear_mid_screen_y: float = (float(m["top"]) + (vp.y - float(m["bottom"]))) * 0.5
+		var offset_from_center: float = clear_mid_screen_y - vp.y * 0.5
+		var cam_y: float = playable_mid_y - offset_from_center / _cam_target_zoom
+		_cam_target_pos = Vector2(mw * 0.5, cam_y)
+	else:
+		var vertical_bias: float = (float(m["bottom"]) - float(m["top"])) * 0.5 / _cam_target_zoom
+		_cam_target_pos = Vector2(mw * 0.5, mh * 0.5 + vertical_bias)
 	_clamp_camera_target()
 	_camera.position = _cam_target_pos
 	_camera.zoom = Vector2(_cam_target_zoom, _cam_target_zoom)
 
 func _clear_battlefield() -> void:
+	_active_enemies.clear()
 	for c in _enemies_node.get_children():
 		c.queue_free()
 	for c in _turrets_node.get_children():
@@ -197,8 +359,12 @@ func _clear_battlefield() -> void:
 	placing_type = null
 	airstrike_aiming = false
 	drone_assign_aiming = false
+	_preview_pad_index = -1
+	_airstrike_preview_active = false
+	_touch_points.clear()
 	_terrain.placement_active = false
 	_terrain.hovered_pad_index = -1
+	_terrain.placement_confirm_hint = ""
 
 func _load_sector(map_id: String) -> void:
 	if String(map_data.get("id", "")) == map_id and _terrain != null:
@@ -211,8 +377,13 @@ func _load_sector(map_id: String) -> void:
 func _on_sector_selected(map_id: String) -> void:
 	_sfx.play("ui_click")
 	_clear_battlefield()
-	_load_sector(map_id)
-	_refresh_hud()
+	if _use_enemy_sprite_cache:
+		# Update Briefing UI immediately (0 ms click latency) and debounce background terrain bake on mobile
+		_pending_preview_map_id = map_id
+		_preview_debounce_timer = 0.12
+	else:
+		_load_sector(map_id)
+		_refresh_hud()
 
 func _get_next_sector_id() -> String:
 	var all_maps := MapData.get_all_maps()
@@ -249,8 +420,11 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 			target_map_id = String(season["map_id"])
 			intercepted_banner = String(season["banner"])
 
+	_pending_preview_map_id = ""
+	_preview_debounce_timer = 0.0
 	_clear_battlefield()
 	_load_sector(target_map_id)
+	_reset_camera()
 	difficulty = selected_diff
 	diff_cfg = WaveData.get_difficulty_config(difficulty)
 
@@ -280,11 +454,13 @@ func _on_start_game(map_id: String, selected_diff: WaveData.Difficulty, allow_se
 
 	if _is_festive_map():
 		_sfx.play("festive_chime", -1.0, 0.0, 0.0)
-		var b_text: String = intercepted_banner if intercepted_banner != "" else ("%s  •  PRESS [N] TO START!" % String(map_data["name"]))
+		var fallback_b: String = ("%s  •  TAP LAUNCH WAVE 1!" % String(map_data["name"])) if _is_touch_mode else ("%s  •  PRESS [N] TO START!" % String(map_data["name"]))
+		var b_text: String = intercepted_banner if intercepted_banner != "" else fallback_b
 		_hud.show_wave_banner(b_text)
 	else:
 		_sfx.play("wave_start", -2.0, 0.0)
-		_hud.show_wave_banner("%s  •  PRESS [N] TO LAUNCH WAVE 1" % String(map_data["name"]))
+		var start_b: String = ("%s  •  TAP LAUNCH WAVE 1" % String(map_data["name"])) if _is_touch_mode else ("%s  •  PRESS [N] TO LAUNCH WAVE 1" % String(map_data["name"]))
+		_hud.show_wave_banner(start_b)
 	_refresh_hud()
 
 func _on_replay_sector_requested() -> void:
@@ -316,7 +492,16 @@ func _process(delta: float) -> void:
 	_update_camera(real_delta)
 	_update_hover_feedback()
 
-	if not game_started or game_over or paused:
+	if not game_started:
+		if _pending_preview_map_id != "":
+			_preview_debounce_timer -= real_delta
+			if _preview_debounce_timer <= 0.0:
+				var next_preview := _pending_preview_map_id
+				_pending_preview_map_id = ""
+				_load_sector(next_preview)
+				_refresh_hud()
+		return
+	if game_over or paused:
 		return
 
 	# Track real duty time for career medals (flushed every 5s)
@@ -340,7 +525,11 @@ func _process(delta: float) -> void:
 
 	# Award wave-clear bonus per wave as soon as all units of that wave are cleared
 	# (even if the player manually called the next wave early!)
-	_check_unclaimed_wave_bonuses()
+	if not _unclaimed_wave_bonuses.is_empty():
+		_wave_bonus_check_accum += real_delta
+		if _active_enemies.is_empty() or _wave_bonus_check_accum >= 0.2:
+			_wave_bonus_check_accum = 0.0
+			_check_unclaimed_wave_bonuses()
 
 	# Check wave completion & inter-wave auto-launch countdown
 	# (auto-launch waits until all enemies are cleared; manual [N] early call is available once spawning finishes)
@@ -359,7 +548,17 @@ func _process(delta: float) -> void:
 			if inter_wave_timer <= 0.0:
 				_launch_next_wave(false)
 
-	_refresh_hud()
+	_hud_refresh_accum += real_delta
+	if _hud_refresh_accum >= 0.125:
+		_hud_refresh_accum = 0.0
+		_refresh_hud()
+
+	if _medals_check_dirty:
+		_medals_check_accum += real_delta
+		if _medals_check_accum >= 1.0:
+			_medals_check_accum = 0.0
+			_medals_check_dirty = false
+			_check_medals()
 
 func _update_camera(real_delta: float) -> void:
 	var move := Vector2.ZERO
@@ -407,13 +606,17 @@ func _clamp_camera_target() -> void:
 	var z: float = maxf(0.1, _cam_target_zoom)
 	var half_vis_w: float = (vp.x * 0.5) / z
 	var half_vis_h: float = (vp.y * 0.5) / z
-	var top_world: float = HUD_TOP_SAFE / z
-	var bot_world: float = HUD_BOTTOM_SAFE / z
+	var m := _get_hud_safe_margins()
+	var top_world: float = float(m["top"]) / z
+	var bot_world: float = float(m["bottom"]) / z
+	var side_pad: float = 0.0 if _is_touch_mode else 8.0
+	var left_world: float = (float(m["left"]) + side_pad) / z
+	var right_world: float = (float(m["right"]) + side_pad) / z
 
-	var min_x: float = half_vis_w - 8.0 / z
-	var max_x: float = mw - half_vis_w + 8.0 / z
+	var min_x: float = half_vis_w - left_world
+	var max_x: float = mw - half_vis_w + right_world
 	if min_x >= max_x:
-		_cam_target_pos.x = mw * 0.5
+		_cam_target_pos.x = mw * 0.5 + (right_world - left_world) * 0.5
 	else:
 		_cam_target_pos.x = clampf(_cam_target_pos.x, min_x, max_x)
 
@@ -430,23 +633,13 @@ func _add_camera_shake(amount: float) -> void:
 func _get_world_mouse_pos() -> Vector2:
 	return get_global_mouse_position()
 
-func _update_hover_feedback() -> void:
-	var mpos := _get_world_mouse_pos()
-	_fx.airstrike_aiming = airstrike_aiming
-	if airstrike_aiming:
-		_fx.airstrike_aim_pos = mpos
+func _screen_to_world(screen_pos: Vector2) -> Vector2:
+	return get_viewport().get_canvas_transform().affine_inverse() * screen_pos
 
+func _update_hover_feedback() -> void:
 	if drone_assign_aiming:
 		if selected_turret == null or not is_instance_valid(selected_turret) or not selected_turret.can_launch_drone():
 			drone_assign_aiming = false
-	_fx.drone_assign_aiming = drone_assign_aiming
-	if drone_assign_aiming:
-		_fx.drone_assign_pos = mpos
-		var hov := _find_enemy_at(mpos, 46.0)
-		_fx.drone_assign_has_target = (hov != null)
-		if hov != null:
-			_fx.drone_assign_target_pos = hov.position
-			_fx.drone_assign_target_radius = hov.hit_radius
 
 	if placing_type != null:
 		var cfg := TurretData.get_config(placing_type)
@@ -458,18 +651,52 @@ func _update_hover_feedback() -> void:
 	else:
 		_terrain.placement_active = false
 
+	if _is_touch_mode:
+		_fx.airstrike_aiming = airstrike_aiming and _airstrike_preview_active
+		if _fx.airstrike_aiming:
+			_fx.airstrike_aim_pos = _airstrike_preview_pos
+			_fx.airstrike_label = "TAP AGAIN TO STRIKE"
+		_fx.drone_assign_aiming = false
+
+		if placing_type != null:
+			if _preview_pad_index != -1 and _terrain.occupied_pads.has(_preview_pad_index):
+				_preview_pad_index = -1
+			_terrain.hovered_pad_index = _preview_pad_index
+			if _preview_pad_index != -1:
+				var cfg := TurretData.get_config(placing_type)
+				var cost: int = int(cfg["base_cost"])
+				_terrain.placement_confirm_hint = ("TAP AGAIN TO BUILD ($%d)" % cost) if cash >= cost else ("NEED $%d" % cost)
+			else:
+				_terrain.placement_confirm_hint = ""
+		else:
+			_preview_pad_index = -1
+			_terrain.hovered_pad_index = -1
+			_terrain.placement_confirm_hint = ""
+		return
+
+	var mpos := _get_world_mouse_pos()
+	_fx.airstrike_aiming = airstrike_aiming
+	_fx.airstrike_label = "HELLFIRE STRIKE"
+	if airstrike_aiming:
+		_fx.airstrike_aim_pos = mpos
+
+	_fx.drone_assign_aiming = drone_assign_aiming
+	if drone_assign_aiming:
+		_fx.drone_assign_pos = mpos
+		var hov := _find_enemy_at(mpos, 46.0)
+		_fx.drone_assign_has_target = (hov != null)
+		if hov != null:
+			_fx.drone_assign_target_pos = hov.position
+			_fx.drone_assign_target_radius = hov.hit_radius
+
+	_terrain.placement_confirm_hint = ""
 	_terrain.hovered_pad_index = _find_pad_at(mpos, 32.0)
 
 func _find_enemy_at(world_pos: Vector2, max_dist: float) -> Enemy:
-	if _enemies_node == null:
-		return null
 	var best: Enemy = null
 	var best_d: float = max_dist
-	for child in _enemies_node.get_children():
-		if not (child is Enemy) or not is_instance_valid(child):
-			continue
-		var e: Enemy = child
-		if not e.alive:
+	for e in _active_enemies:
+		if not is_instance_valid(e) or not e.alive:
 			continue
 		var d: float = world_pos.distance_to(e.position) - e.hit_radius * 0.55
 		if d < best_d:
@@ -555,7 +782,17 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					_open_pause_menu()
 
+	elif event is InputEventScreenTouch:
+		_set_touch_mode(true)
+		_handle_screen_touch(event as InputEventScreenTouch)
+
+	elif event is InputEventScreenDrag:
+		_set_touch_mode(true)
+		_handle_screen_drag(event as InputEventScreenDrag)
+
 	elif event is InputEventMouseButton:
+		if event.device == InputEvent.DEVICE_ID_EMULATION:
+			return
 		var mb: InputEventMouseButton = event
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			_zoom_camera_at(1.14, mb.position)
@@ -574,6 +811,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_handle_left_click(_get_world_mouse_pos())
 
 	elif event is InputEventMouseMotion:
+		if event.device == InputEvent.DEVICE_ID_EMULATION:
+			return
 		if _panning:
 			var delta_screen: Vector2 = event.position - _last_mouse_screen
 			_last_mouse_screen = event.position
@@ -582,6 +821,114 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cam_target_pos -= delta_screen / _camera.zoom.x
 			_clamp_camera_target()
 
+func _handle_screen_touch(ev: InputEventScreenTouch) -> void:
+	if ev.pressed:
+		_touch_points[ev.index] = ev.position
+		if _touch_points.size() == 1:
+			_touch_start_pos = ev.position
+			_touch_dragged = false
+			_touch_had_multi = false
+		elif _touch_points.size() >= 2:
+			_touch_had_multi = true
+			_touch_dragged = true
+			var keys := _touch_points.keys()
+			var p0: Vector2 = _touch_points[keys[0]]
+			var p1: Vector2 = _touch_points[keys[1]]
+			_pinch_last_dist = p0.distance_to(p1)
+			_pinch_last_mid = (p0 + p1) * 0.5
+	else:
+		var was_tracked: bool = _touch_points.has(ev.index)
+		_touch_points.erase(ev.index)
+		if was_tracked and _touch_points.is_empty() and not _touch_dragged and not _touch_had_multi:
+			_handle_touch_tap(_screen_to_world(ev.position))
+		if _touch_points.is_empty():
+			_touch_dragged = false
+			_touch_had_multi = false
+		elif _touch_points.size() >= 2:
+			var keys := _touch_points.keys()
+			var p0: Vector2 = _touch_points[keys[0]]
+			var p1: Vector2 = _touch_points[keys[1]]
+			_pinch_last_dist = p0.distance_to(p1)
+			_pinch_last_mid = (p0 + p1) * 0.5
+
+func _handle_screen_drag(ev: InputEventScreenDrag) -> void:
+	if not _touch_points.has(ev.index):
+		return
+	_touch_points[ev.index] = ev.position
+	if _touch_points.size() == 1 and not _touch_had_multi:
+		if not _touch_dragged and ev.position.distance_to(_touch_start_pos) > TOUCH_TAP_SLOP:
+			_touch_dragged = true
+		if _touch_dragged:
+			_cam_target_pos -= ev.relative / _camera.zoom.x
+			_clamp_camera_target()
+	elif _touch_points.size() >= 2:
+		var keys := _touch_points.keys()
+		var p0: Vector2 = _touch_points[keys[0]]
+		var p1: Vector2 = _touch_points[keys[1]]
+		var dist: float = p0.distance_to(p1)
+		var mid: Vector2 = (p0 + p1) * 0.5
+		if _pinch_last_dist > 10.0:
+			var mid_delta: Vector2 = mid - _pinch_last_mid
+			_cam_target_pos -= mid_delta / _camera.zoom.x
+			if dist > 10.0:
+				var zoom_factor: float = clampf(dist / _pinch_last_dist, 0.85, 1.18)
+				_zoom_camera_at(zoom_factor, mid)
+		_pinch_last_dist = dist
+		_pinch_last_mid = mid
+		_clamp_camera_target()
+
+func _handle_touch_tap(world_pos: Vector2) -> void:
+	# 1. Hellfire Air Strike: tap map to preview reticle, tap inside reticle again to strike!
+	if airstrike_aiming:
+		if _airstrike_preview_active and world_pos.distance_to(_airstrike_preview_pos) <= AIRSTRIKE_RADIUS * 1.08:
+			var strike_pos := _airstrike_preview_pos
+			_airstrike_preview_active = false
+			_trigger_airstrike(strike_pos)
+		else:
+			_airstrike_preview_active = true
+			_airstrike_preview_pos = world_pos
+			_sfx.play("ui_click", -4.0)
+			_refresh_hud()
+		return
+
+	# 1.5. Hunter Drone manual target lock: generous single tap on moving hostiles
+	if drone_assign_aiming:
+		var target_enemy := _find_enemy_at(world_pos, TOUCH_ENEMY_RADIUS)
+		if target_enemy != null and selected_turret != null and is_instance_valid(selected_turret):
+			if selected_turret.assign_manual_target(target_enemy):
+				_fx.spawn_floating_text(target_enemy.position + Vector2(0, -18), "DRONE LOCKED!", Color(0.56, 0.96, 0.34))
+		drone_assign_aiming = false
+		_refresh_hud()
+		return
+
+	var pad_idx := _find_pad_at(world_pos, TOUCH_PAD_RADIUS)
+
+	# 2. Turret placement: tap empty pad to preview range, tap same pad again to build!
+	if placing_type != null:
+		if pad_idx != -1 and not _terrain.occupied_pads.has(pad_idx):
+			if pad_idx == _preview_pad_index:
+				_try_place_turret(placing_type, pad_idx)
+				_preview_pad_index = -1
+			else:
+				_preview_pad_index = pad_idx
+				_sfx.play("ui_click", -4.0)
+		elif pad_idx != -1 and _terrain.occupied_pads.has(pad_idx):
+			placing_type = null
+			_preview_pad_index = -1
+			_select_turret(_terrain.occupied_pads[pad_idx])
+		else:
+			placing_type = null
+			_preview_pad_index = -1
+		_refresh_hud()
+		return
+
+	# 3. Select existing turret on pad (or dismiss inspector)
+	if pad_idx != -1 and _terrain.occupied_pads.has(pad_idx):
+		_select_turret(_terrain.occupied_pads[pad_idx])
+	else:
+		_select_turret(null)
+	_refresh_hud()
+
 func _has_active_mode() -> bool:
 	return placing_type != null or airstrike_aiming or drone_assign_aiming or (selected_turret != null and is_instance_valid(selected_turret))
 
@@ -589,6 +936,8 @@ func _cancel_modes() -> void:
 	placing_type = null
 	airstrike_aiming = false
 	drone_assign_aiming = false
+	_preview_pad_index = -1
+	_airstrike_preview_active = false
 	_select_turret(null)
 	_refresh_hud()
 
@@ -649,7 +998,9 @@ func _try_place_turret(t_type: TurretData.TurretType, pad_idx: int) -> void:
 		_fx,
 		_decals,
 		_sfx,
-		Callable(self, "_add_camera_shake")
+		Callable(self, "_add_camera_shake"),
+		_turret_sprite_cache,
+		_active_enemies
 	)
 	_turrets_node.add_child(turret)
 	_terrain.occupied_pads[pad_idx] = turret
@@ -687,7 +1038,9 @@ func _on_turret_card_selected(t_type: TurretData.TurretType) -> void:
 		return
 	_sfx.play("ui_click")
 	airstrike_aiming = false
+	_airstrike_preview_active = false
 	drone_assign_aiming = false
+	_preview_pad_index = -1
 	if placing_type == t_type:
 		placing_type = null
 	else:
@@ -700,10 +1053,29 @@ func _on_airstrike_requested() -> void:
 		return
 	_sfx.play("ui_click")
 	placing_type = null
+	_preview_pad_index = -1
 	drone_assign_aiming = false
 	_select_turret(null)
 	airstrike_aiming = not airstrike_aiming
+	_airstrike_preview_active = false
+	if airstrike_aiming and _is_touch_mode:
+		_hud.show_wave_banner("HELLFIRE READY  •  TAP MAP TO AIM, TAP RETICLE TO STRIKE")
 	_refresh_hud()
+
+func _on_inspector_close_requested() -> void:
+	_sfx.play("ui_click", -3.0)
+	_select_turret(null)
+	_refresh_hud()
+
+func _on_title_easter_egg_tapped(tap_count: int) -> void:
+	if game_started:
+		return
+	if tap_count == 3:
+		_sfx.play("festive_chime", -11.0, 0.02, 0.0)
+	elif tap_count == 4:
+		_sfx.play("festive_chime", -6.0, 0.02, 0.0)
+	elif tap_count >= 5:
+		_on_secret_sector_requested("north_pole")
 
 func _on_drone_hold_toggled() -> void:
 	if selected_turret == null or not is_instance_valid(selected_turret):
@@ -723,10 +1095,13 @@ func _on_drone_assign_requested() -> void:
 	placing_type = null
 	airstrike_aiming = false
 	drone_assign_aiming = not drone_assign_aiming
+	if drone_assign_aiming and _is_touch_mode:
+		_hud.show_wave_banner("HUNTER DRONE  •  TAP ANY HOSTILE TO LOCK TARGET")
 	_refresh_hud()
 
 func _trigger_airstrike(target_pos: Vector2) -> void:
 	airstrike_aiming = false
+	_airstrike_preview_active = false
 	airstrike_cd = AIRSTRIKE_COOLDOWN
 
 	var run_dir := Vector2(1.0, -0.25).normalized()
@@ -766,13 +1141,17 @@ func _update_pending_bombs(delta: float) -> void:
 			_sfx.play("explosion_big", 0.5, 0.14, 0.05)
 			_add_camera_shake(10.5)
 
-			for child in _enemies_node.get_children():
-				if child is Enemy and is_instance_valid(child) and child.alive:
-					var e: Enemy = child
-					var dist := pos.distance_to(e.position)
-					if dist <= rad + e.hit_radius:
-						var falloff := lerpf(1.0, 0.5, clampf(dist / rad, 0.0, 1.0))
-						e.take_damage(dmg * falloff, 0.9, null)
+			for ei in range(_active_enemies.size() - 1, -1, -1):
+				if ei >= _active_enemies.size():
+					continue
+				var e: Enemy = _active_enemies[ei]
+				if not is_instance_valid(e) or not e.alive:
+					continue
+				var reach := rad + e.hit_radius
+				var dist_sq := pos.distance_squared_to(e.position)
+				if dist_sq <= reach * reach:
+					var falloff := lerpf(1.0, 0.5, clampf(sqrt(dist_sq) / rad, 0.0, 1.0))
+					e.take_damage(dmg * falloff, 0.9, null)
 			pending_bombs.remove_at(i)
 
 func _on_next_wave_requested() -> void:
@@ -841,8 +1220,8 @@ func _check_unclaimed_wave_bonuses() -> void:
 		if still_spawning:
 			continue
 		var still_alive := false
-		for c in _enemies_node.get_children():
-			if c is Enemy and is_instance_valid(c) and c.alive and int(c.get_meta("wave_index", -1)) == w_idx:
+		for e in _active_enemies:
+			if is_instance_valid(e) and e.alive and int(e.get_meta("wave_index", -1)) == w_idx:
 				still_alive = true
 				break
 		if not still_alive:
@@ -883,11 +1262,12 @@ func _spawn_enemy(e_type: EnemyData.EnemyType, lane_idx: int = 0, wave_idx: int 
 
 	var enemy := Enemy.new()
 	enemy.set_meta("wave_index", eff_wave_idx)
-	enemy.setup(e_type, path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
+	enemy.setup(e_type, path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map(), _enemy_sprite_cache)
 	enemy.died.connect(_on_enemy_died)
 	enemy.reached_base.connect(_on_enemy_reached_base)
 	enemy.spawn_sub_unit.connect(_on_enemy_spawn_sub_unit)
 	_enemies_node.add_child(enemy)
+	_active_enemies.append(enemy)
 
 func _on_enemy_spawn_sub_unit(sub_type: EnemyData.EnemyType, from_pos: Vector2) -> void:
 	if game_over or not game_started:
@@ -917,15 +1297,25 @@ func _on_enemy_spawn_sub_unit(sub_type: EnemyData.EnemyType, from_pos: Vector2) 
 	var rew_mult: float = float(diff_cfg["reward_mult"]) * WaveData.get_wave_reward_scale(current_wave_index, waves.size())
 
 	var drone_enemy := Enemy.new()
-	drone_enemy.setup(sub_type, sub_path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map())
+	drone_enemy.setup(sub_type, sub_path, hp_mult, spd_mult, rew_mult, _fx, _is_festive_map(), _enemy_sprite_cache)
 	drone_enemy.died.connect(_on_enemy_died)
 	drone_enemy.reached_base.connect(_on_enemy_reached_base)
 	_enemies_node.add_child(drone_enemy)
+	_active_enemies.append(drone_enemy)
 
 	_fx.spawn_spark_hit(from_pos, Color(1.0, 0.62, 0.20), 5)
 	_sfx.play("uav_launch", -4.5, 0.10, 0.08)
 
+func _remove_active_enemy(enemy: Enemy) -> void:
+	var idx := _active_enemies.find(enemy)
+	if idx != -1:
+		var last := _active_enemies.size() - 1
+		if idx != last:
+			_active_enemies[idx] = _active_enemies[last]
+		_active_enemies.pop_back()
+
 func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
+	_remove_active_enemy(enemy)
 	cash += enemy.reward
 	total_kills += 1
 	var killer_id: String = ""
@@ -952,7 +1342,7 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 	if killer_id != "" and st.has("turret_kills"):
 		var tk: Dictionary = st["turret_kills"]
 		tk[killer_id] = int(tk.get(killer_id, 0)) + 1
-	_check_medals()
+	_medals_check_dirty = true
 	var blast_r := 56.0 if is_boss else (36.0 if is_heavy else (18.0 if enemy.enemy_type == EnemyData.EnemyType.FPV_DRONE else 24.0))
 	if _is_festive_map():
 		_fx.spawn_festive_pop(enemy.position, blast_r)
@@ -987,9 +1377,12 @@ func _on_enemy_died(enemy: Enemy, killer_turret: Node) -> void:
 		_voice.play_category("kill", 2.5)
 		_callout_cd = randf_range(34.0, 52.0)
 
-	_refresh_hud()
+	# Let 8 Hz HUD timer coalesce rapid multi-kill cash updates instead of rebuilding HUD on every single kill
+	if not _use_enemy_sprite_cache:
+		_refresh_hud()
 
 func _on_enemy_reached_base(enemy: Enemy) -> void:
+	_remove_active_enemy(enemy)
 	lives = maxi(0, lives - enemy.lives_cost)
 	_sfx.play("base_hit", 0.0, 0.04, 0.08)
 	_fx.spawn_explosion(map_data["base_pos"], 38.0, true)
@@ -1006,9 +1399,15 @@ func _on_enemy_reached_base(enemy: Enemy) -> void:
 
 func _count_alive_enemies() -> int:
 	var count := 0
-	for c in _enemies_node.get_children():
-		if c is Enemy and is_instance_valid(c) and c.alive:
+	for i in range(_active_enemies.size() - 1, -1, -1):
+		var e: Enemy = _active_enemies[i]
+		if is_instance_valid(e) and e.alive:
 			count += 1
+		else:
+			var last := _active_enemies.size() - 1
+			if i != last:
+				_active_enemies[i] = _active_enemies[last]
+			_active_enemies.pop_back()
 	return count
 
 func _get_total_turrets_sell_value() -> int:
@@ -1253,7 +1652,7 @@ func _refresh_hud() -> void:
 	var all_launched := (current_wave_index >= waves.size() - 1)
 	var can_call := (not all_launched) and (waiting_for_next_wave or active_spawners.is_empty())
 	var early_bonus := _get_early_wave_bonus()
-	_hud.update_dock(cash, placing_type, airstrike_cd, AIRSTRIKE_COOLDOWN, airstrike_aiming, can_call, current_wave_index + 2, early_bonus, all_launched)
+	_hud.update_dock(cash, placing_type, airstrike_cd, AIRSTRIKE_COOLDOWN, airstrike_aiming, can_call, current_wave_index + 2, early_bonus, all_launched, _airstrike_preview_active)
 	_hud.update_inspector(selected_turret, cash, drone_assign_aiming)
 
 	if game_started and not game_over and (current_wave_index + 1) < waves.size():

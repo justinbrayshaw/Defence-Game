@@ -7,9 +7,10 @@
 # Imported textures and samples (regenerated automatically on import)
 .import/
 
-# Exported builds
+# Exported builds & local export presets (contains local keystore paths)
 export/
 builds/
+export_presets.cfg
 
 # OS & editor files
 .DS_Store

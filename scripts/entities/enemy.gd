@@ -45,6 +45,27 @@ var _uav_interval: float = 4.6
 var _uav_spawned: int = 0
 var _uav_max_spawns: int = 0
 var _fx: FxManager = null
+var _bake_only: bool = false
+var _use_cached_sprite: bool = false
+var _hull_sprite: Sprite2D = null
+var _last_modulate_state: int = -1
+var _overlay_redraw_accum: float = 0.0
+var _overlay_active: bool = false
+var _is_mobile_perf: bool = false
+
+func setup_for_sprite_bake(type: EnemyData.EnemyType, is_festive: bool = false) -> void:
+	enemy_type = type
+	config = EnemyData.get_config(type)
+	festive_mode = is_festive
+	is_air = bool(config["is_air"])
+	hit_radius = float(config["radius"])
+	heading = 0.0
+	alive = false
+	_bake_only = true
+	_uav_max_spawns = int(config.get("uav_max_spawns", 0))
+	_uav_spawned = 0
+	set_process(false)
+	queue_redraw()
 
 func setup(
 	type: EnemyData.EnemyType,
@@ -53,13 +74,15 @@ func setup(
 	speed_mult: float,
 	reward_mult: float,
 	fx_manager: FxManager,
-	is_festive: bool = false
+	is_festive: bool = false,
+	sprite_cache: EnemySpriteCache = null
 ) -> void:
 	enemy_type = type
 	config = EnemyData.get_config(type)
 	_fx = fx_manager
 	festive_mode = is_festive
 	_phase_seed = randf_range(0.0, TAU)
+	_is_mobile_perf = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
 
 	is_air = bool(config["is_air"])
 	max_hp = float(config["hp"]) * hp_mult
@@ -93,6 +116,21 @@ func setup(
 		heading = (path_points[1] - path_points[0]).angle()
 	z_index = 35 if is_air else 15
 
+	if sprite_cache != null:
+		_use_cached_sprite = true
+		_hull_sprite = Sprite2D.new()
+		_hull_sprite.texture = sprite_cache.get_texture(enemy_type, festive_mode)
+		var inv_sc: float = 1.0 / EnemySpriteCache.BAKE_SCALE
+		_hull_sprite.scale = Vector2(inv_sc, inv_sc)
+		_hull_sprite.rotation = heading
+		_hull_sprite.z_index = -1
+		add_child(_hull_sprite)
+		_last_modulate_state = 0
+		var is_boss_unit: bool = (enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
+		_overlay_active = is_boss_unit or max_shield > 0.0
+		if _overlay_active:
+			queue_redraw()
+
 func get_progress() -> float:
 	return distance_traveled / maxf(1.0, total_path_length)
 
@@ -109,6 +147,8 @@ func apply_slow(amount: float, duration: float) -> void:
 		slow_timer = maxf(slow_timer, duration)
 	else:
 		slow_timer = maxf(slow_timer, duration * 0.85)
+	if _use_cached_sprite:
+		_overlay_active = true
 
 func take_damage(raw_damage: float, armor_pierce: float, source_turret: Node = null, shield_mult: float = 1.0) -> void:
 	if not alive:
@@ -122,6 +162,8 @@ func take_damage(raw_damage: float, armor_pierce: float, source_turret: Node = n
 			_shield_flash = 0.16
 			if shield_dmg < shield:
 				shield -= shield_dmg
+				if _use_cached_sprite:
+					_overlay_active = true
 				return
 			else:
 				remaining_raw = (shield_dmg - shield) / maxf(0.1, shield_mult)
@@ -135,6 +177,8 @@ func take_damage(raw_damage: float, armor_pierce: float, source_turret: Node = n
 	var final_dmg: float = maxf(0.2, remaining_raw * (1.0 - eff_armor))
 	hp -= final_dmg
 	hit_flash = 0.11
+	if _use_cached_sprite and hp > 0.0:
+		_overlay_active = true
 	if hp <= 0.0:
 		hp = 0.0
 		alive = false
@@ -195,16 +239,21 @@ func _process(delta: float) -> void:
 	# Movement trails: road dust for ground vehicles, wingtip contrails for jets
 	if _fx != null:
 		_dust_timer += delta
-		if not is_air and _dust_timer >= 0.11:
+		var dust_interval: float = 0.28 if _is_mobile_perf else 0.11
+		if not is_air and _dust_timer >= dust_interval:
 			_dust_timer = 0.0
-			var back := Vector2.from_angle(heading)
-			var perp := Vector2(-back.y, back.x)
-			var sc: float = float(config["scale"])
-			var rear_off: float = 11.0 * sc
-			var track_w: float = 5.5 * sc
-			_fx.spawn_dust(position - back * rear_off + perp * track_w, 3.6 * sc, 0.44)
-			_fx.spawn_dust(position - back * rear_off - perp * track_w, 3.6 * sc, 0.44)
-		elif enemy_type == EnemyData.EnemyType.BOMBER and _dust_timer >= 0.045:
+			if not _is_mobile_perf or _fx.get_particle_count() < 80:
+				var back := Vector2.from_angle(heading)
+				var sc: float = float(config["scale"])
+				var rear_off: float = 11.0 * sc
+				if _is_mobile_perf:
+					_fx.spawn_dust(position - back * rear_off, 3.8 * sc, 0.40)
+				else:
+					var perp := Vector2(-back.y, back.x)
+					var track_w: float = 5.5 * sc
+					_fx.spawn_dust(position - back * rear_off + perp * track_w, 3.6 * sc, 0.44)
+					_fx.spawn_dust(position - back * rear_off - perp * track_w, 3.6 * sc, 0.44)
+		elif enemy_type == EnemyData.EnemyType.BOMBER and _dust_timer >= (0.09 if _is_mobile_perf else 0.045):
 			_dust_timer = 0.0
 			var fwd := Vector2.from_angle(heading)
 			var perp := Vector2(-fwd.y, fwd.x)
@@ -220,7 +269,7 @@ func _process(delta: float) -> void:
 		var hp_ratio: float = hp / maxf(1.0, max_hp)
 		if hp_ratio < 0.62:
 			_smoke_timer += delta
-			var rate: float = 0.09 if hp_ratio < 0.35 else 0.17
+			var rate: float = (0.22 if hp_ratio < 0.35 else 0.34) if _is_mobile_perf else (0.09 if hp_ratio < 0.35 else 0.17)
 			if _smoke_timer >= rate:
 				_smoke_timer = 0.0
 				var dark: float = 0.85 if festive_mode else (0.14 if hp_ratio < 0.35 else 0.28)
@@ -235,15 +284,55 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 
-	queue_redraw()
+	if _use_cached_sprite and _hull_sprite != null:
+		_hull_sprite.rotation = heading
+		var mod_state: int = (2 if hit_flash > 0.0 else 0) | (1 if slow_timer > 0.0 else 0)
+		if mod_state != _last_modulate_state:
+			_last_modulate_state = mod_state
+			if hit_flash > 0.0:
+				_hull_sprite.modulate = Color(1.42, 1.36, 1.20, 1.0)
+			elif slow_timer > 0.0:
+				_hull_sprite.modulate = Color(0.68, 0.90, 1.0, 1.0)
+			else:
+				_hull_sprite.modulate = Color.WHITE
+		var is_boss_u: bool = (enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy_type == EnemyData.EnemyType.SKY_FORTRESS)
+		var needs_overlay: bool = (hp < max_hp) or is_boss_u or (max_shield > 0.0) or (slow_timer > 0.0) or (enemy_type == EnemyData.EnemyType.CHOPPER and not festive_mode)
+		if needs_overlay:
+			_overlay_active = true
+			_overlay_redraw_accum += delta
+			var redraw_iv: float = 0.045 if (enemy_type == EnemyData.EnemyType.CHOPPER and not festive_mode) else 0.11
+			if _overlay_redraw_accum >= redraw_iv:
+				_overlay_redraw_accum = 0.0
+				queue_redraw()
+		elif _overlay_active:
+			_overlay_active = false
+			queue_redraw()
+	else:
+		queue_redraw()
 
 func _draw() -> void:
+	if _use_cached_sprite and not _bake_only:
+		# Cached Sprite2D draws the full procedural hull in 1 GPU quad; only draw dynamic rotor/status/HP overlay here!
+		if enemy_type == EnemyData.EnemyType.CHOPPER and not festive_mode:
+			for b in range(4):
+				var a: float = _rotor_angle + float(b) * (PI * 0.5)
+				var bd := Vector2.from_angle(a)
+				draw_line(bd * 3.0, bd * 21.5, Color(0.10, 0.11, 0.13, 0.86), 2.5, false)
+				draw_line(bd * 18.0, bd * 21.5, Color(0.92, 0.78, 0.22, 0.82), 2.2, false)
+			draw_circle(Vector2.ZERO, 3.8, Color(0.22, 0.25, 0.28))
+			draw_circle(Vector2.ZERO, 1.6, Color(0.55, 0.60, 0.64))
+		if _overlay_active:
+			_draw_damage_and_status()
+			_draw_health_bar()
+		return
+
 	var hull_col: Color = config["hull_color"]
 	var trim_col: Color = config["trim_color"]
-	if slow_timer > 0.0:
-		hull_col = hull_col.lerp(Color(0.38, 0.80, 0.98), 0.36)
-	if hit_flash > 0.0:
-		hull_col = hull_col.lerp(Color(1.0, 0.96, 0.84), 0.62)
+	if not _bake_only:
+		if slow_timer > 0.0:
+			hull_col = hull_col.lerp(Color(0.38, 0.80, 0.98), 0.36)
+		if hit_flash > 0.0:
+			hull_col = hull_col.lerp(Color(1.0, 0.96, 0.84), 0.62)
 
 	if festive_mode:
 		match enemy_type:
@@ -290,8 +379,9 @@ func _draw() -> void:
 			EnemyData.EnemyType.SKY_FORTRESS:
 				_draw_sky_fortress(hull_col, trim_col)
 
-	_draw_damage_and_status()
-	_draw_health_bar()
+	if not _bake_only:
+		_draw_damage_and_status()
+		_draw_health_bar()
 
 func _xf(local_pt: Vector2, rot: float = 0.0, pivot: Vector2 = Vector2.ZERO) -> Vector2:
 	var pt: Vector2 = local_pt
@@ -754,11 +844,12 @@ func _draw_chopper(hull: Color, trim: Color) -> void:
 	# Motion-blurred main rotor disc + 4 composite blades with yellow safety tips
 	draw_circle(Vector2.ZERO, 21.0, Color(0.14, 0.17, 0.20, 0.18))
 	draw_arc(Vector2.ZERO, 20.5, 0.0, TAU, 36, Color(0.75, 0.80, 0.82, 0.14), 1.4, true)
-	for b in range(4):
-		var a: float = _rotor_angle + float(b) * (PI * 0.5)
-		var bd := Vector2.from_angle(a)
-		draw_line(bd * 3.0, bd * 21.5, Color(0.10, 0.11, 0.13, 0.86), 2.5, true)
-		draw_line(bd * 18.0, bd * 21.5, Color(0.92, 0.78, 0.22, 0.82), 2.2, true)
+	if not _bake_only:
+		for b in range(4):
+			var a: float = _rotor_angle + float(b) * (PI * 0.5)
+			var bd := Vector2.from_angle(a)
+			draw_line(bd * 3.0, bd * 21.5, Color(0.10, 0.11, 0.13, 0.86), 2.5, true)
+			draw_line(bd * 18.0, bd * 21.5, Color(0.92, 0.78, 0.22, 0.82), 2.2, true)
 	# Mast hub cap
 	draw_circle(Vector2.ZERO, 3.8, Color(0.22, 0.25, 0.28))
 	draw_circle(Vector2.ZERO, 1.6, Color(0.55, 0.60, 0.64))
@@ -1047,8 +1138,9 @@ func _draw_damage_and_status() -> void:
 		draw_circle(_xf(Vector2(-2.0, 0.0)), hit_radius * 0.20 * flick, Color(1.0, 0.92, 0.40, 0.78))
 
 	# Cryo frost crystalline ring overlay
+	var use_aa: bool = not _is_mobile_perf
 	if slow_timer > 0.0:
-		draw_arc(Vector2.ZERO, hit_radius + 2.0, 0.0, TAU, 24, Color(0.50, 0.92, 1.0, 0.68), 1.6, true)
+		draw_arc(Vector2.ZERO, hit_radius + 2.0, 0.0, TAU, 14 if _is_mobile_perf else 24, Color(0.50, 0.92, 1.0, 0.68), 1.6, use_aa)
 
 	# Trophy APS Active Protection electromagnetic intercept dome
 	if max_shield > 0.0 and shield > 0.0:
@@ -1059,11 +1151,12 @@ func _draw_damage_and_status() -> void:
 		var fill_a: float = (0.09 + 0.08 * s_ratio) * pulse + flash_boost * 0.24
 		var edge_a: float = (0.45 + 0.42 * s_ratio) * pulse + flash_boost * 0.35
 		draw_circle(Vector2.ZERO, dome_r, Color(0.24, 0.84, 1.0, fill_a))
-		draw_arc(Vector2.ZERO, dome_r, 0.0, TAU, 32, Color(0.42, 0.92, 1.0, minf(1.0, edge_a)), 1.9 + flash_boost * 1.4, true)
+		draw_arc(Vector2.ZERO, dome_r, 0.0, TAU, 18 if _is_mobile_perf else 32, Color(0.42, 0.92, 1.0, minf(1.0, edge_a)), 1.9 + flash_boost * 1.4, use_aa)
 		# Rotating APS radar intercept arcs
-		for i in range(3):
-			var a: float = _time * 2.1 + float(i) * (TAU / 3.0)
-			draw_arc(Vector2.ZERO, dome_r + 2.5, a, a + 0.42, 6, Color(0.72, 0.96, 1.0, 0.72 * s_ratio), 1.5, true)
+		if not _is_mobile_perf:
+			for i in range(3):
+				var a: float = _time * 2.1 + float(i) * (TAU / 3.0)
+				draw_arc(Vector2.ZERO, dome_r + 2.5, a, a + 0.42, 6, Color(0.72, 0.96, 1.0, 0.72 * s_ratio), 1.5, true)
 
 func _draw_health_bar() -> void:
 	var is_boss: bool = (enemy_type == EnemyData.EnemyType.JUGGERNAUT or enemy_type == EnemyData.EnemyType.SKY_FORTRESS)

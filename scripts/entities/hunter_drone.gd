@@ -23,8 +23,11 @@ var _done: bool = false
 
 var _fx: FxManager = null
 var _sfx: SfxManager = null
+var _redraw_accum: float = 0.0
+var _is_mobile_perf: bool = false
 
 func setup(params: Dictionary) -> void:
+	_is_mobile_perf = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
 	source_turret = params["source_turret"]
 	target_enemy = params["target_enemy"]
 	position = params["start_pos"]
@@ -100,7 +103,13 @@ func _process(delta: float) -> void:
 		_fire_cd = 1.0 / maxf(0.2, fire_rate)
 		_fire_burst()
 
-	queue_redraw()
+	if _is_mobile_perf:
+		_redraw_accum += delta
+		if _redraw_accum >= 0.033:
+			_redraw_accum = 0.0
+			queue_redraw()
+	else:
+		queue_redraw()
 
 func _fire_burst() -> void:
 	if target_enemy == null or not is_instance_valid(target_enemy) or not target_enemy.alive:
@@ -120,6 +129,7 @@ func _fire_burst() -> void:
 	target_enemy.take_damage(damage, armor_pierce, killer, 1.0)
 
 func _draw() -> void:
+	var use_aa: bool = not _is_mobile_perf
 	# 1. Target lock-on tactical reticle drawn around the pursued target
 	if target_enemy != null and is_instance_valid(target_enemy) and target_enemy.alive:
 		var t_local: Vector2 = target_enemy.position - position
@@ -127,15 +137,15 @@ func _draw() -> void:
 		var lock_col := Color(accent.r, accent.g, accent.b, 0.85)
 		for i in range(4):
 			var a: float = _time * 1.5 + float(i) * PI * 0.5
-			draw_arc(t_local, lock_r, a - 0.26, a + 0.26, 6, lock_col, 1.8, true)
+			draw_arc(t_local, lock_r, a - 0.26, a + 0.26, 6, lock_col, 1.8, use_aa)
 		# Subtle laser designator sightline
-		draw_line(Vector2.ZERO, t_local, Color(accent.r, accent.g, accent.b, 0.18), 1.0, true)
+		draw_line(Vector2.ZERO, t_local, Color(accent.r, accent.g, accent.b, 0.18), 1.0, use_aa)
 
 	# 2. Active burst tracer
 	if _tracer_timer > 0.0:
 		var end_local: Vector2 = _tracer_end - position
-		draw_line(Vector2.ZERO, end_local, Color(accent.r, accent.g, accent.b, 0.82), 2.4, true)
-		draw_line(Vector2.ZERO, end_local, Color(0.95, 1.0, 0.86, 0.96), 1.1, true)
+		draw_line(Vector2.ZERO, end_local, Color(accent.r, accent.g, accent.b, 0.82), 2.4, use_aa)
+		draw_line(Vector2.ZERO, end_local, Color(0.95, 1.0, 0.86, 0.96), 1.1, use_aa)
 
 	# 3. Altitude ground shadow
 	var sh := Vector2(18.0, 22.0)
@@ -152,13 +162,13 @@ func _draw() -> void:
 	]
 	for ao in arm_offsets:
 		var wp: Vector2 = fwd * ao.x + perp * ao.y
-		draw_line(Vector2.ZERO, wp, Color(0.14, 0.16, 0.14), 2.4, true)
-		draw_line(Vector2.ZERO, wp, Color(0.36, 0.40, 0.36), 1.1, true)
+		draw_line(Vector2.ZERO, wp, Color(0.14, 0.16, 0.14), 2.4, use_aa)
+		draw_line(Vector2.ZERO, wp, Color(0.36, 0.40, 0.36), 1.1, use_aa)
 		# Rotor blur disc + blade
 		draw_circle(wp, 5.2, Color(0.75, 0.85, 0.78, 0.16))
-		draw_arc(wp, 5.0, 0.0, TAU, 14, Color(0.55, 0.65, 0.58, 0.34), 1.0, true)
+		draw_arc(wp, 5.0, 0.0, TAU, 10 if _is_mobile_perf else 14, Color(0.55, 0.65, 0.58, 0.34), 1.0, use_aa)
 		var b_dir := Vector2.from_angle(_rotor_angle + ao.x)
-		draw_line(wp - b_dir * 4.6, wp + b_dir * 4.6, Color(0.10, 0.12, 0.10, 0.82), 1.4, true)
+		draw_line(wp - b_dir * 4.6, wp + b_dir * 4.6, Color(0.10, 0.12, 0.10, 0.82), 1.4, use_aa)
 		draw_circle(wp, 1.4, Color(0.24, 0.27, 0.24))
 
 	# Armored central fuselage + forward EO/IR camera pod
@@ -173,12 +183,12 @@ func _draw() -> void:
 	draw_colored_polygon(hull_pts, Color(0.22, 0.26, 0.23))
 	var outline := PackedVector2Array(hull_pts)
 	outline.append(hull_pts[0])
-	draw_polyline(outline, Color(0.08, 0.10, 0.08), 1.2, true)
+	draw_polyline(outline, Color(0.08, 0.10, 0.08), 1.2, use_aa)
 
 	# Upgrade winglet fins on Lv 2+
 	if turret_level >= 1:
 		for side: float in [-1.0, 1.0]:
-			draw_line(fwd * 2.0 + perp * (side * 3.5), -fwd * 5.0 + perp * (side * 7.8), accent, 1.8, true)
+			draw_line(fwd * 2.0 + perp * (side * 3.5), -fwd * 5.0 + perp * (side * 7.8), accent, 1.8, use_aa)
 
 	# Glowing green optical sensor eye + tail status strobe
 	draw_circle(fwd * 5.5, 2.3, accent)

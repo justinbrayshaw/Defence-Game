@@ -2,8 +2,15 @@ class_name DecalLayer
 extends Node2D
 
 const MAX_DECALS: int = 160
+const MAX_DECALS_MOBILE: int = 72
 
 var _decals: Array[Dictionary] = []
+var _max_decals: int = MAX_DECALS
+var _redraw_accum: float = 0.0
+
+func _ready() -> void:
+	if OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web"):
+		_max_decals = MAX_DECALS_MOBILE
 
 func clear_all() -> void:
 	_decals.clear()
@@ -78,17 +85,22 @@ func _push_decal(d: Dictionary) -> void:
 				queue_redraw()
 				return
 	_decals.append(d)
-	if _decals.size() > MAX_DECALS:
+	if _decals.size() > _max_decals:
 		_decals.remove_at(0)
 	queue_redraw()
 
 func _process(delta: float) -> void:
 	if _decals.is_empty():
 		return
+	_redraw_accum += delta
+	if _redraw_accum < 0.125:
+		return
+	var step: float = _redraw_accum
+	_redraw_accum = 0.0
 	var dirty := false
 	for i in range(_decals.size() - 1, -1, -1):
 		var d := _decals[i]
-		d["age"] = float(d["age"]) + delta
+		d["age"] = float(d["age"]) + step
 		var age: float = d["age"]
 		var max_age: float = d["max_age"]
 		if age >= max_age:

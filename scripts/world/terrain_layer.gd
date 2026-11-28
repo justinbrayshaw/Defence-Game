@@ -4,7 +4,9 @@ extends Node2D
 const MASK_W: int = 200
 const MASK_H: int = 120
 const TERRAIN_BAKE_SHADER: Shader = preload("res://shaders/terrain_bake.gdshader")
+const TERRAIN_BAKE_MOBILE_SHADER: Shader = preload("res://shaders/terrain_bake_mobile.gdshader")
 const TERRAIN_LIVE_SHADER: Shader = preload("res://shaders/terrain_live.gdshader")
+const TERRAIN_LIVE_MOBILE_SHADER: Shader = preload("res://shaders/terrain_live_mobile.gdshader")
 
 class _DrawRelay extends Node2D:
 	var draw_cb: Callable
@@ -14,6 +16,7 @@ class _DrawRelay extends Node2D:
 			draw_cb.call(self)
 
 var _mask_cache: Dictionary = {} # map_id -> ImageTexture
+var _props_cache: Dictionary = {} # map_id -> Dictionary of generated static/dynamic prop arrays
 
 var map_data: Dictionary = {}
 var occupied_pads: Dictionary = {} # pad_index -> Turret
@@ -24,6 +27,7 @@ var placement_range: float = 0.0
 var placement_affordable: bool = true
 var placement_accent: Color = Color(0.25, 0.92, 0.45)
 var hovered_pad_index: int = -1
+var placement_confirm_hint: String = ""
 
 var _time: float = 0.0
 var _biome: String = "alpine"
@@ -58,13 +62,28 @@ var _bunkers: Array[Dictionary] = []
 var _bake_viewport: SubViewport
 var _bake_rect: ColorRect
 var _bg_rect: ColorRect
+var _props_viewport: SubViewport
+var _props_bake_clone: TerrainLayer
+var _props_sprite: Sprite2D
+var _is_props_bake_clone: bool = false
+var _use_baked_props: bool = false
+var _dyn_redraw_accum: float = 0.0
 var _dynamic_under: _DrawRelay
 var _dynamic_over: _DrawRelay
 var _mask_tex: ImageTexture
 
 func _enter_tree() -> void:
+	if _is_props_bake_clone:
+		return
+	rebake_terrain()
+
+func rebake_terrain() -> void:
 	if _bake_viewport != null and is_instance_valid(_bake_viewport) and not map_data.is_empty():
 		_bake_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	if _props_viewport != null and is_instance_valid(_props_viewport) and not map_data.is_empty():
+		_props_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	if not _use_baked_props:
+		queue_redraw()
 
 func _ensure_dynamic_layers() -> void:
 	if _dynamic_under == null or not is_instance_valid(_dynamic_under):
@@ -90,13 +109,82 @@ func setup(data: Dictionary) -> void:
 	_is_countryside = (biome == "countryside")
 	_is_forest = (biome == "forest")
 	_is_outback = (biome == "outback")
+	_use_baked_props = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
 	_bake_map_mask()
 	_setup_shader_background()
 	_ensure_dynamic_layers()
 	_generate_props()
-	queue_redraw()
+	if _use_baked_props:
+		_bake_static_props_to_texture()
+	else:
+		queue_redraw()
 	_dynamic_under.queue_redraw()
 	_dynamic_over.queue_redraw()
+
+func _copy_static_props_from(src: TerrainLayer) -> void:
+	map_data = src.map_data
+	_biome = src._biome
+	_is_desert = src._is_desert
+	_is_tundra = src._is_tundra
+	_is_mountain = src._is_mountain
+	_is_christmas = src._is_christmas
+	_is_town = src._is_town
+	_is_countryside = src._is_countryside
+	_is_forest = src._is_forest
+	_is_outback = src._is_outback
+	_trees = src._trees
+	_oaks = src._oaks
+	_palms = src._palms
+	_shrubs = src._shrubs
+	_buildings = src._buildings
+	_domes = src._domes
+	_crystals = src._crystals
+	_hay_bales = src._hay_bales
+	_logs = src._logs
+	_rocks = src._rocks
+	_shore_stones = src._shore_stones
+	_snowmen = src._snowmen
+	_candy_canes = src._candy_canes
+	_gift_piles = src._gift_piles
+	_sandbags = src._sandbags
+	_bunkers = src._bunkers
+
+func _bake_static_props_to_texture() -> void:
+	var target_size := Vector2(float(map_data["width"]), float(map_data["height"]))
+	var props_scale: float = 0.80
+	var vp_size := Vector2i(int(round(target_size.x * props_scale)), int(round(target_size.y * props_scale)))
+	if _props_viewport == null or not is_instance_valid(_props_viewport):
+		_props_viewport = SubViewport.new()
+		_props_viewport.disable_3d = true
+		_props_viewport.transparent_bg = true
+		_props_viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR
+		_props_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+		_props_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_props_viewport.size = vp_size
+		add_child(_props_viewport)
+
+		_props_bake_clone = TerrainLayer.new()
+		_props_bake_clone._is_props_bake_clone = true
+		_props_bake_clone.set_process(false)
+		_props_bake_clone.scale = Vector2(props_scale, props_scale)
+		_props_viewport.add_child(_props_bake_clone)
+
+	if _props_viewport.size != vp_size:
+		_props_viewport.size = vp_size
+	_props_bake_clone.scale = Vector2(props_scale, props_scale)
+	_props_bake_clone._copy_static_props_from(self)
+	_props_bake_clone.queue_redraw()
+	_props_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+
+	if _props_sprite == null or not is_instance_valid(_props_sprite):
+		_props_sprite = Sprite2D.new()
+		_props_sprite.centered = false
+		_props_sprite.position = Vector2.ZERO
+		_props_sprite.z_index = 0
+		add_child(_props_sprite)
+	_props_sprite.texture = _props_viewport.get_texture()
+	var inv_sc: float = 1.0 / props_scale
+	_props_sprite.scale = Vector2(inv_sc, inv_sc)
 
 func _get_bridges() -> Array[Dictionary]:
 	var raw: Array = []
@@ -125,10 +213,13 @@ func _bake_map_mask() -> void:
 		_mask_tex = _mask_cache[map_id]
 		return
 
+	var is_mobile_perf: bool = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	var mw_cells: int = 128 if is_mobile_perf else MASK_W
+	var mh_cells: int = 76 if is_mobile_perf else MASK_H
 	var mw: float = float(map_data["width"])
 	var mh: float = float(map_data["height"])
-	var cell_w: float = mw / float(MASK_W)
-	var cell_h: float = mh / float(MASK_H)
+	var cell_w: float = mw / float(mw_cells)
+	var cell_h: float = mh / float(mh_cells)
 	var inv_cw: float = 1.0 / cell_w
 	var inv_ch: float = 1.0 / cell_h
 	var roads: Array = map_data["ground_coarses"]
@@ -137,7 +228,7 @@ func _bake_map_mask() -> void:
 	var pads: Array = map_data["pads"]
 	var base_pos: Vector2 = map_data["base_pos"]
 
-	var total_px: int = MASK_W * MASK_H
+	var total_px: int = mw_cells * mh_cells
 	var road_d2 := PackedFloat32Array()
 	road_d2.resize(total_px)
 	road_d2.fill(16384.0) # 128^2
@@ -170,14 +261,14 @@ func _bake_map_mask() -> void:
 			var inv_lsq: float = (1.0 / len_sq) if len_sq > 0.0001 else 0.0
 
 			var x0: int = maxi(0, int(floor((minf(ax, b.x) - ROAD_MAX_R) * inv_cw)))
-			var x1: int = mini(MASK_W - 1, int(ceil((maxf(ax, b.x) + ROAD_MAX_R) * inv_cw)))
+			var x1: int = mini(mw_cells - 1, int(ceil((maxf(ax, b.x) + ROAD_MAX_R) * inv_cw)))
 			var y0: int = maxi(0, int(floor((minf(ay, b.y) - ROAD_MAX_R) * inv_ch)))
-			var y1: int = mini(MASK_H - 1, int(ceil((maxf(ay, b.y) + ROAD_MAX_R) * inv_ch)))
+			var y1: int = mini(mh_cells - 1, int(ceil((maxf(ay, b.y) + ROAD_MAX_R) * inv_ch)))
 
 			for y in range(y0, y1 + 1):
 				var wy: float = (float(y) + 0.5) * cell_h
 				var py: float = wy - ay
-				var row_off: int = y * MASK_W
+				var row_off: int = y * mw_cells
 				for x in range(x0, x1 + 1):
 					var wx: float = (float(x) + 0.5) * cell_w
 					var px: float = wx - ax
@@ -204,14 +295,14 @@ func _bake_map_mask() -> void:
 			var inv_lsq: float = (1.0 / len_sq) if len_sq > 0.0001 else 0.0
 
 			var x0: int = maxi(0, int(floor((minf(ax, b.x) - RIV_MAX_R) * inv_cw)))
-			var x1: int = mini(MASK_W - 1, int(ceil((maxf(ax, b.x) + RIV_MAX_R) * inv_cw)))
+			var x1: int = mini(mw_cells - 1, int(ceil((maxf(ax, b.x) + RIV_MAX_R) * inv_cw)))
 			var y0: int = maxi(0, int(floor((minf(ay, b.y) - RIV_MAX_R) * inv_ch)))
-			var y1: int = mini(MASK_H - 1, int(ceil((maxf(ay, b.y) + RIV_MAX_R) * inv_ch)))
+			var y1: int = mini(mh_cells - 1, int(ceil((maxf(ay, b.y) + RIV_MAX_R) * inv_ch)))
 
 			for y in range(y0, y1 + 1):
 				var wy: float = (float(y) + 0.5) * cell_h
 				var py: float = wy - ay
-				var row_off: int = y * MASK_W
+				var row_off: int = y * mw_cells
 				for x in range(x0, x1 + 1):
 					var wx: float = (float(x) + 0.5) * cell_w
 					var px: float = wx - ax
@@ -227,13 +318,13 @@ func _bake_map_mask() -> void:
 	# Pass 3: Stamp HQ base (scaled by 0.55 -> effective radius 175px) & turret pads (96px)
 	const BASE_MAX_R: float = 175.0
 	var bx0: int = maxi(0, int(floor((base_pos.x - BASE_MAX_R) * inv_cw)))
-	var bx1: int = mini(MASK_W - 1, int(ceil((base_pos.x + BASE_MAX_R) * inv_cw)))
+	var bx1: int = mini(mw_cells - 1, int(ceil((base_pos.x + BASE_MAX_R) * inv_cw)))
 	var by0: int = maxi(0, int(floor((base_pos.y - BASE_MAX_R) * inv_ch)))
-	var by1: int = mini(MASK_H - 1, int(ceil((base_pos.y + BASE_MAX_R) * inv_ch)))
+	var by1: int = mini(mh_cells - 1, int(ceil((base_pos.y + BASE_MAX_R) * inv_ch)))
 	for y in range(by0, by1 + 1):
 		var dy: float = (float(y) + 0.5) * cell_h - base_pos.y
 		var dy2: float = dy * dy
-		var row_off: int = y * MASK_W
+		var row_off: int = y * mw_cells
 		for x in range(bx0, bx1 + 1):
 			var dx: float = (float(x) + 0.5) * cell_w - base_pos.x
 			var d2: float = (dx * dx + dy2) * 0.3025 # 0.55^2
@@ -245,13 +336,13 @@ func _bake_map_mask() -> void:
 	for pad_pos in pads:
 		var pc: Vector2 = pad_pos
 		var px0: int = maxi(0, int(floor((pc.x - PAD_MAX_R) * inv_cw)))
-		var px1: int = mini(MASK_W - 1, int(ceil((pc.x + PAD_MAX_R) * inv_cw)))
+		var px1: int = mini(mw_cells - 1, int(ceil((pc.x + PAD_MAX_R) * inv_cw)))
 		var py0: int = maxi(0, int(floor((pc.y - PAD_MAX_R) * inv_ch)))
-		var py1: int = mini(MASK_H - 1, int(ceil((pc.y + PAD_MAX_R) * inv_ch)))
+		var py1: int = mini(mh_cells - 1, int(ceil((pc.y + PAD_MAX_R) * inv_ch)))
 		for y in range(py0, py1 + 1):
 			var dy: float = (float(y) + 0.5) * cell_h - pc.y
 			var dy2: float = dy * dy
-			var row_off: int = y * MASK_W
+			var row_off: int = y * mw_cells
 			for x in range(px0, px1 + 1):
 				var dx: float = (float(x) + 0.5) * cell_w - pc.x
 				var d2: float = dx * dx + dy2
@@ -283,7 +374,7 @@ func _bake_map_mask() -> void:
 		bytes[b_idx + 3] = a_byte
 		b_idx += 4
 
-	var img: Image = Image.create_from_data(MASK_W, MASK_H, false, Image.FORMAT_RGBA8, bytes)
+	var img: Image = Image.create_from_data(mw_cells, mh_cells, false, Image.FORMAT_RGBA8, bytes)
 	_mask_tex = ImageTexture.create_from_image(img)
 	if map_id != "":
 		_mask_cache[map_id] = _mask_tex
@@ -298,7 +389,9 @@ func _pack_bridge_vec4(bridges: Array[Dictionary], index: int) -> Vector4:
 
 func _setup_shader_background() -> void:
 	var target_size := Vector2(float(map_data["width"]), float(map_data["height"]))
-	var vp_size := Vector2i(int(target_size.x), int(target_size.y))
+	var is_mobile_perf: bool = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	var bake_scale: float = 0.60 if is_mobile_perf else 1.0
+	var vp_size := Vector2i(int(round(target_size.x * bake_scale)), int(round(target_size.y * bake_scale)))
 	if _bake_viewport == null or not is_instance_valid(_bake_viewport):
 		_bake_viewport = SubViewport.new()
 		_bake_viewport.disable_3d = true
@@ -311,26 +404,28 @@ func _setup_shader_background() -> void:
 
 		_bake_rect = ColorRect.new()
 		_bake_rect.position = Vector2.ZERO
-		_bake_rect.size = target_size
+		_bake_rect.size = Vector2(vp_size)
 		_bake_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if TERRAIN_BAKE_SHADER != null:
+		var bake_sh: Shader = TERRAIN_BAKE_MOBILE_SHADER if is_mobile_perf else TERRAIN_BAKE_SHADER
+		if bake_sh != null:
 			var bmat := ShaderMaterial.new()
-			bmat.shader = TERRAIN_BAKE_SHADER
+			bmat.shader = bake_sh
 			_bake_rect.material = bmat
 		_bake_viewport.add_child(_bake_rect)
 
 	if _bake_viewport.size != vp_size:
 		_bake_viewport.size = vp_size
-	_bake_rect.size = target_size
+	_bake_rect.size = Vector2(vp_size)
 
 	if _bg_rect == null or not is_instance_valid(_bg_rect):
 		_bg_rect = ColorRect.new()
 		_bg_rect.position = Vector2.ZERO
 		_bg_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_bg_rect.z_index = -5
-		if TERRAIN_LIVE_SHADER != null:
+		var live_sh: Shader = TERRAIN_LIVE_MOBILE_SHADER if is_mobile_perf else TERRAIN_LIVE_SHADER
+		if live_sh != null:
 			var mat := ShaderMaterial.new()
-			mat.shader = TERRAIN_LIVE_SHADER
+			mat.shader = live_sh
 			_bg_rect.material = mat
 		add_child(_bg_rect)
 
@@ -400,26 +495,51 @@ func _sample_river_point(river: PackedVector2Array, rng: RandomNumberGenerator) 
 	return {"pos": p, "perp": perp}
 
 func _generate_props() -> void:
-	_trees.clear()
-	_oaks.clear()
-	_palms.clear()
-	_shrubs.clear()
-	_buildings.clear()
-	_domes.clear()
-	_crystals.clear()
-	_ambient_motes.clear()
-	_hay_bales.clear()
-	_logs.clear()
-	_rocks.clear()
-	_shore_stones.clear()
-	_ice_floes.clear()
-	_snowflakes.clear()
-	_snowmen.clear()
-	_candy_canes.clear()
-	_gift_piles.clear()
-	_lanterns.clear()
-	_sandbags.clear()
-	_bunkers.clear()
+	var map_id: String = String(map_data.get("id", ""))
+	if map_id != "" and _props_cache.has(map_id):
+		var c: Dictionary = _props_cache[map_id]
+		_trees = c["trees"]
+		_oaks = c["oaks"]
+		_palms = c["palms"]
+		_shrubs = c["shrubs"]
+		_buildings = c["buildings"]
+		_domes = c["domes"]
+		_crystals = c["crystals"]
+		_ambient_motes = c["ambient_motes"]
+		_hay_bales = c["hay_bales"]
+		_logs = c["logs"]
+		_rocks = c["rocks"]
+		_shore_stones = c["shore_stones"]
+		_ice_floes = c["ice_floes"]
+		_snowflakes = c["snowflakes"]
+		_snowmen = c["snowmen"]
+		_candy_canes = c["candy_canes"]
+		_gift_piles = c["gift_piles"]
+		_lanterns = c["lanterns"]
+		_sandbags = c["sandbags"]
+		_bunkers = c["bunkers"]
+		return
+
+	_trees = []
+	_oaks = []
+	_palms = []
+	_shrubs = []
+	_buildings = []
+	_domes = []
+	_crystals = []
+	_ambient_motes = []
+	_hay_bales = []
+	_logs = []
+	_rocks = []
+	_shore_stones = []
+	_ice_floes = []
+	_snowflakes = []
+	_snowmen = []
+	_candy_canes = []
+	_gift_piles = []
+	_lanterns = []
+	_sandbags = []
+	_bunkers = []
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(map_data.get("seed", 4091337))
@@ -661,6 +781,29 @@ func _generate_props() -> void:
 		_bunkers.append(bnk)
 
 	_generate_new_biome_props(rng, w, h, roads, river, pads, base_pos)
+	if map_id != "":
+		_props_cache[map_id] = {
+			"trees": _trees,
+			"oaks": _oaks,
+			"palms": _palms,
+			"shrubs": _shrubs,
+			"buildings": _buildings,
+			"domes": _domes,
+			"crystals": _crystals,
+			"ambient_motes": _ambient_motes,
+			"hay_bales": _hay_bales,
+			"logs": _logs,
+			"rocks": _rocks,
+			"shore_stones": _shore_stones,
+			"ice_floes": _ice_floes,
+			"snowflakes": _snowflakes,
+			"snowmen": _snowmen,
+			"candy_canes": _candy_canes,
+			"gift_piles": _gift_piles,
+			"lanterns": _lanterns,
+			"sandbags": _sandbags,
+			"bunkers": _bunkers,
+		}
 
 func _generate_new_biome_props(rng: RandomNumberGenerator, w: float, h: float, roads: Array, river: PackedVector2Array, pads: Array, base_pos: Vector2) -> void:
 	if _is_town:
@@ -1075,6 +1218,8 @@ func _make_oak(pos: Vector2, radius: float, rng: RandomNumberGenerator, kind: St
 	}
 
 func _process(delta: float) -> void:
+	if _is_props_bake_clone:
+		return
 	_time += delta
 	if map_data.is_empty():
 		return
@@ -1088,14 +1233,21 @@ func _process(delta: float) -> void:
 		for mt in _ambient_motes:
 			mt["x"] = fposmod(float(mt["x"]) + float(mt["vx"]) * delta, w)
 			mt["y"] = fposmod(float(mt["y"]) + float(mt["vy"]) * delta, h)
+	if _use_baked_props:
+		_dyn_redraw_accum += delta
+		if _dyn_redraw_accum < 0.033:
+			return
+		_dyn_redraw_accum = 0.0
 	if not _ice_floes.is_empty() and _dynamic_under != null:
 		_dynamic_under.queue_redraw()
 	if _dynamic_over != null:
 		_dynamic_over.queue_redraw()
 
 func _draw() -> void:
-	# Static layer: drawn ONCE per sector load and retained by Godot's RenderingServer.
+	# Static layer: drawn ONCE per sector load (baked into a single Sprite2D texture on mobile/web!).
 	if map_data.is_empty():
+		return
+	if _use_baked_props and not _is_props_bake_clone:
 		return
 	_draw_road_markings()
 	_draw_shore_stones()
@@ -1499,6 +1651,17 @@ func _draw_pads_dynamic(ci: Node2D) -> void:
 				ci.draw_arc(pos, placement_range, 0.0, TAU, 72, edge_col, 2.2, true)
 				ci.draw_circle(pos, 24.0, Color(ring_col.r, ring_col.g, ring_col.b, 0.26))
 				ci.draw_arc(pos, 26.2, 0.0, TAU, 36, ring_col, 2.8, true)
+				if placement_confirm_hint != "":
+					var font := ThemeDB.fallback_font
+					var fsize := 13
+					var tsz := font.get_string_size(placement_confirm_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+					var lbl_y: float = pos.y - 36.0
+					if lbl_y < 52.0:
+						lbl_y = pos.y + 48.0
+					var box := Rect2(pos.x - tsz.x * 0.5 - 9.0, lbl_y - float(fsize) - 4.0, tsz.x + 18.0, float(fsize) + 10.0)
+					ci.draw_rect(box, Color(0.05, 0.07, 0.05, 0.92))
+					ci.draw_rect(box, edge_col, false, 1.6)
+					ci.draw_string(font, Vector2(pos.x - tsz.x * 0.5, lbl_y), placement_confirm_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color.WHITE if placement_affordable else Color(1.0, 0.48, 0.42))
 			else:
 				ci.draw_circle(pos, 17.5, Color(ring_col.r, ring_col.g, ring_col.b, 0.14 + pulse * 0.08))
 				ci.draw_arc(pos, 22.5, 0.0, TAU, 32, ring_col, 2.2, true)

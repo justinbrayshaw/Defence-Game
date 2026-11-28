@@ -31,11 +31,36 @@ var active_drone: HunterDrone = null
 var rearm_timer: float = 0.0
 
 var _enemies_container: Node = null
+var _active_enemies: Array[Enemy] = []
+var _has_active_enemies_ref: bool = false
 var _projectiles_container: Node = null
 var _fx: FxManager = null
 var _decals: DecalLayer = null
 var _sfx: SfxManager = null
 var _on_shake: Callable
+var _cached_target: Enemy = null
+var _target_scan_cd: float = 0.0
+var _last_drawn_angle: float = -999.0
+var _last_drawn_recoil: float = -1.0
+var _last_drawn_laser: bool = false
+var _cryo_redraw_accum: float = 0.0
+var _turret_redraw_accum: float = 0.0
+var _is_mobile_perf: bool = false
+var _bake_part: String = "" # "", "base", or "head"
+var _use_cached_sprite: bool = false
+var _sprite_cache: TurretSpriteCache = null
+var _base_sprite: Sprite2D = null
+var _head_sprite: Sprite2D = null
+
+func setup_for_sprite_bake(type: TurretData.TurretType, lv: int, part: String) -> void:
+	turret_type = type
+	config = TurretData.get_config(type)
+	level = lv
+	turret_angle = 0.0
+	recoil = 0.0
+	_bake_part = part
+	set_process(false)
+	queue_redraw()
 
 func setup(
 	type: TurretData.TurretType,
@@ -46,7 +71,9 @@ func setup(
 	fx_manager: FxManager,
 	decals: DecalLayer,
 	sfx: SfxManager,
-	on_shake: Callable
+	on_shake: Callable,
+	sprite_cache: TurretSpriteCache = null,
+	active_enemies_ref: Variant = null
 ) -> void:
 	turret_type = type
 	config = TurretData.get_config(type)
@@ -57,12 +84,34 @@ func setup(
 	if turret_type == TurretData.TurretType.DRONE:
 		target_mode = TurretData.TargetMode.STRONGEST
 	_enemies_container = enemies_container
+	if active_enemies_ref is Array:
+		_active_enemies = active_enemies_ref
+		_has_active_enemies_ref = true
 	_projectiles_container = projectiles_container
 	_fx = fx_manager
 	_decals = decals
 	_sfx = sfx
 	_on_shake = on_shake
+	_sprite_cache = sprite_cache
+	_is_mobile_perf = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	_turret_redraw_accum = randf_range(0.0, 0.05)
 	z_index = 22
+	# Cache base & rotating head for all 6 combat turrets; keep DRONE pad dynamic for docked/hunting/rearm/hold states
+	if _sprite_cache != null and turret_type != TurretData.TurretType.DRONE:
+		_use_cached_sprite = true
+		var inv_sc: float = 1.0 / TurretSpriteCache.BAKE_SCALE
+		_base_sprite = Sprite2D.new()
+		_base_sprite.texture = _sprite_cache.get_base_texture(turret_type, level)
+		_base_sprite.scale = Vector2(inv_sc, inv_sc)
+		_base_sprite.z_index = 0
+		add_child(_base_sprite)
+
+		_head_sprite = Sprite2D.new()
+		_head_sprite.texture = _sprite_cache.get_head_texture(turret_type, level)
+		_head_sprite.scale = Vector2(inv_sc, inv_sc)
+		_head_sprite.rotation = turret_angle
+		_head_sprite.z_index = 1
+		add_child(_head_sprite)
 	queue_redraw()
 
 func get_stats() -> Dictionary:
@@ -97,6 +146,11 @@ func apply_upgrade() -> void:
 	var cost := get_upgrade_cost()
 	level += 1
 	total_invested += cost
+	if _use_cached_sprite and _sprite_cache != null:
+		if _base_sprite != null:
+			_base_sprite.texture = _sprite_cache.get_base_texture(turret_type, level)
+		if _head_sprite != null:
+			_head_sprite.texture = _sprite_cache.get_head_texture(turret_type, level)
 	if _fx != null:
 		_fx.spawn_spark_hit(position, config["accent"], 10)
 	queue_redraw()
@@ -172,6 +226,8 @@ func cleanup_on_sell() -> void:
 
 func _process(delta: float) -> void:
 	_cryo_pulse += delta * 3.5
+	if _target_scan_cd > 0.0:
+		_target_scan_cd -= delta
 	if recoil > 0.0:
 		recoil = maxf(0.0, recoil - delta * 26.0)
 	if _cooldown > 0.0:
@@ -185,7 +241,7 @@ func _process(delta: float) -> void:
 		TurretData.TurretType.DRONE:
 			_process_drone_pad(delta)
 		_:
-			var target := _acquire_target()
+			var target := _acquire_target_cached()
 			if target != null:
 				var aim_pos := _predict_aim_position(target)
 				var desired := (aim_pos - position).angle()
@@ -196,11 +252,44 @@ func _process(delta: float) -> void:
 				if _cooldown <= 0.0 and angle_diff < 0.34:
 					_fire_at(target, aim_pos)
 
-	queue_redraw()
+	if _use_cached_sprite and _head_sprite != null:
+		_head_sprite.rotation = turret_angle
+		if recoil > 0.01:
+			_head_sprite.position = -Vector2.from_angle(turret_angle) * recoil
+		elif _head_sprite.position != Vector2.ZERO:
+			_head_sprite.position = Vector2.ZERO
+		return
+
+	var ang_thresh: float = 0.045 if _is_mobile_perf else 0.006
+	var needs_redraw: bool = absf(wrapf(turret_angle - _last_drawn_angle, -PI, PI)) > ang_thresh or absf(recoil - _last_drawn_recoil) > (0.35 if _is_mobile_perf else 0.05) or (_laser_active != _last_drawn_laser)
+	if not needs_redraw and (turret_type == TurretData.TurretType.CRYO or (turret_type == TurretData.TurretType.DRONE and rearm_timer > 0.0)):
+		_cryo_redraw_accum += delta
+		if _cryo_redraw_accum >= (0.12 if _is_mobile_perf else 0.08):
+			_cryo_redraw_accum = 0.0
+			needs_redraw = true
+	if needs_redraw:
+		if _is_mobile_perf:
+			_turret_redraw_accum += delta
+			if _turret_redraw_accum < 0.05 and _laser_active == _last_drawn_laser:
+				return
+			_turret_redraw_accum = 0.0
+		_last_drawn_angle = turret_angle
+		_last_drawn_recoil = recoil
+		_last_drawn_laser = _laser_active
+		queue_redraw()
+
+func _acquire_target_cached() -> Enemy:
+	if _target_scan_cd > 0.0 and _cached_target != null and is_instance_valid(_cached_target) and _cached_target.alive:
+		var rng := get_range()
+		if position.distance_squared_to(_cached_target.position) <= rng * rng:
+			return _cached_target
+	_target_scan_cd = randf_range(0.08, 0.12)
+	_cached_target = _acquire_target()
+	return _cached_target
 
 func _process_laser(delta: float) -> void:
 	_laser_active = false
-	var target := _acquire_target()
+	var target := _acquire_target_cached()
 	if target == null:
 		_laser_target = null
 		_laser_ramp_t = 0.0
@@ -252,7 +341,7 @@ func _process_mlrs(delta: float) -> void:
 			_salvo_timer = 0.11
 		return
 
-	var target := _acquire_target()
+	var target := _acquire_target_cached()
 	if target != null:
 		var aim_pos := _predict_aim_position(target)
 		var desired := (aim_pos - position).angle()
@@ -309,6 +398,7 @@ func _fire_mlrs_rocket() -> void:
 		"decals": _decals,
 		"sfx": _sfx,
 		"enemies_container": _enemies_container,
+		"active_enemies": _active_enemies,
 		"on_shake": _on_shake,
 	})
 	_projectiles_container.add_child(proj)
@@ -332,8 +422,8 @@ func _process_drone_pad(delta: float) -> void:
 		return
 
 	# Armed & waiting on pad
-	if not drone_hold_mode:
-		var target := _acquire_target()
+	if not drone_hold_mode and _target_scan_cd <= 0.0:
+		var target := _acquire_target_cached()
 		if target != null:
 			_launch_drone(target)
 			return
@@ -386,11 +476,12 @@ func _acquire_target() -> Enemy:
 	var best_air_score := -INF
 	var prioritize_air := (turret_type == TurretData.TurretType.MISSILE)
 
-	for child in _enemies_container.get_children():
-		if not (child is Enemy) or not is_instance_valid(child):
+	var enemy_list: Array = _active_enemies if _has_active_enemies_ref else _enemies_container.get_children()
+	for child in enemy_list:
+		if not is_instance_valid(child):
 			continue
-		var e: Enemy = child
-		if not e.alive:
+		var e: Enemy = child as Enemy
+		if e == null or not e.alive:
 			continue
 		if e.is_air and not hit_air:
 			continue
@@ -479,6 +570,7 @@ func _fire_at(target: Enemy, aim_pos: Vector2) -> void:
 		"decals": _decals,
 		"sfx": _sfx,
 		"enemies_container": _enemies_container,
+		"active_enemies": _active_enemies,
 		"on_shake": _on_shake,
 	})
 	_projectiles_container.add_child(proj)
@@ -488,12 +580,13 @@ func _fire_at(target: Enemy, aim_pos: Vector2) -> void:
 		match turret_type:
 			TurretData.TurretType.VULCAN:
 				_fx.spawn_muzzle_flash(muzzle_pos, turret_angle, 10.0, Color(1.0, 0.88, 0.42))
-				if randf() < 0.55:
+				if not _is_mobile_perf and randf() < 0.55:
 					_fx.spawn_shell_casing(position + perp * 8.0, turret_angle + PI * 0.52)
 			TurretData.TurretType.CANNON:
 				_fx.spawn_muzzle_flash(muzzle_pos, turret_angle, 18.0, Color(1.0, 0.72, 0.25))
 				_fx.spawn_smoke(muzzle_pos + dir * 4.0, 7.0, 0.45, 0.40)
-				_fx.spawn_shell_casing(position - dir * 8.0, turret_angle + PI * 0.8)
+				if not _is_mobile_perf:
+					_fx.spawn_shell_casing(position - dir * 8.0, turret_angle + PI * 0.8)
 			TurretData.TurretType.MISSILE:
 				_fx.spawn_muzzle_flash(muzzle_pos, turret_angle, 11.0, Color(1.0, 0.78, 0.35))
 				_fx.spawn_smoke(position - dir * 10.0 + perp * lateral, 8.0, 0.55, 0.65)
@@ -514,8 +607,47 @@ func _fire_at(target: Enemy, aim_pos: Vector2) -> void:
 func _draw() -> void:
 	var accent: Color = config["accent"]
 
+	if _bake_part == "head":
+		match turret_type:
+			TurretData.TurretType.VULCAN:
+				_draw_vulcan(accent)
+			TurretData.TurretType.CANNON:
+				_draw_cannon(accent)
+			TurretData.TurretType.MISSILE:
+				_draw_missile(accent)
+			TurretData.TurretType.CRYO:
+				_draw_cryo(accent)
+			TurretData.TurretType.LASER:
+				_draw_laser(accent)
+			TurretData.TurretType.MLRS:
+				_draw_mlrs(accent)
+			TurretData.TurretType.DRONE:
+				_draw_drone_pad(accent)
+		return
+
+	if _use_cached_sprite and _bake_part == "":
+		# Base & rotating head are GPU-cached Sprite2Ds; only draw selection range ring & veteran chevrons here!
+		if selected:
+			var r: float = get_range()
+			draw_circle(Vector2.ZERO, r, Color(accent.r, accent.g, accent.b, 0.09))
+			draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(accent.r, accent.g, accent.b, 0.78), 2.0, false)
+			draw_arc(Vector2.ZERO, 26.5, 0.0, TAU, 28, Color(1.0, 0.96, 0.75, 0.94), 2.4, false)
+		var vet_tier_c := get_veteran_tier()
+		if vet_tier_c > 0:
+			var gold_c := Color(1.0, 0.84, 0.24)
+			for i in range(vet_tier_c):
+				var cy := -21.5 - float(i) * 4.0
+				var pts := PackedVector2Array([
+					Vector2(-5.4, cy + 2.4),
+					Vector2(0.0, cy - 1.8),
+					Vector2(5.4, cy + 2.4),
+				])
+				draw_polyline(pts, Color(0.06, 0.06, 0.05, 0.95), 3.6, false)
+				draw_polyline(pts, gold_c, 1.8, false)
+		return
+
 	# Selection range ring drawn behind turret
-	if selected:
+	if selected and _bake_part == "":
 		var r: float = get_range()
 		draw_circle(Vector2.ZERO, r, Color(accent.r, accent.g, accent.b, 0.09))
 		draw_arc(Vector2.ZERO, r, 0.0, TAU, 72, Color(accent.r, accent.g, accent.b, 0.78), 2.0, true)
@@ -548,22 +680,23 @@ func _draw() -> void:
 	draw_arc(Vector2.ZERO, 15.2, 0.0, TAU, 32, Color(0.38, 0.41, 0.36), 1.6, true)
 	draw_arc(Vector2.ZERO, 12.6, 0.0, TAU, 24, Color(0.24, 0.26, 0.23), 1.0, true)
 
-	# Rotating upper weapon assembly
-	match turret_type:
-		TurretData.TurretType.VULCAN:
-			_draw_vulcan(accent)
-		TurretData.TurretType.CANNON:
-			_draw_cannon(accent)
-		TurretData.TurretType.MISSILE:
-			_draw_missile(accent)
-		TurretData.TurretType.CRYO:
-			_draw_cryo(accent)
-		TurretData.TurretType.LASER:
-			_draw_laser(accent)
-		TurretData.TurretType.MLRS:
-			_draw_mlrs(accent)
-		TurretData.TurretType.DRONE:
-			_draw_drone_pad(accent)
+	# Rotating upper weapon assembly (skipped when baking base-only texture!)
+	if _bake_part != "base":
+		match turret_type:
+			TurretData.TurretType.VULCAN:
+				_draw_vulcan(accent)
+			TurretData.TurretType.CANNON:
+				_draw_cannon(accent)
+			TurretData.TurretType.MISSILE:
+				_draw_missile(accent)
+			TurretData.TurretType.CRYO:
+				_draw_cryo(accent)
+			TurretData.TurretType.LASER:
+				_draw_laser(accent)
+			TurretData.TurretType.MLRS:
+				_draw_mlrs(accent)
+			TurretData.TurretType.DRONE:
+				_draw_drone_pad(accent)
 
 	# Upgrade level tactical pips along lower rim
 	var pip_count: int = level + 1
@@ -574,6 +707,9 @@ func _draw() -> void:
 		draw_circle(ppos, 3.3, Color(0.05, 0.06, 0.05, 0.96))
 		draw_circle(ppos, 2.2, accent)
 		draw_circle(ppos + Vector2(-0.6, -0.6), 0.9, Color(1.0, 1.0, 1.0, 0.55))
+
+	if _bake_part == "base":
+		return
 
 	# Veteran kill-milestone golden chevrons along top rim (15 / 35 / 60 kills)
 	var vet_tier := get_veteran_tier()

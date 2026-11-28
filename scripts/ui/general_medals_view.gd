@@ -13,6 +13,7 @@ var selected_medal_id: String = ""
 var hovered_medal_id: String = ""
 var avatar_style: String = "male" # "male" or "female" (both proudly keep the exact same magnificent moustache!)
 var _time: float = 0.0
+var _redraw_accum: float = 0.0
 var _placed_medals: Array[Dictionary] = [] # { "id": String, "pos": Vector2, "scale": float, "rot": float, "def": Dictionary }
 
 # 36 escalating placement slots in normalized coordinates relative to the General's torso center (cx, cy)
@@ -90,12 +91,15 @@ func set_avatar_style(style: String) -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
-	if not visible:
+	if not visible or unlocked_ids.is_empty():
 		return
 	var real_delta: float = delta / maxf(0.01, Engine.time_scale)
 	_time += real_delta
-	if not unlocked_ids.is_empty():
-		queue_redraw()
+	if unlocked_ids.size() >= 12:
+		_redraw_accum += real_delta
+		if _redraw_accum >= 0.066:
+			_redraw_accum = 0.0
+			queue_redraw()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
@@ -135,30 +139,36 @@ func _rebuild_layout() -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
+		if event.device == InputEvent.DEVICE_ID_EMULATION:
+			return
 		var hit := _hit_test(event.position)
 		if hit != hovered_medal_id:
 			hovered_medal_id = hit
 			mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if hit != "" else Control.CURSOR_ARROW
 			queue_redraw()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		var hit := _hit_test(event.position)
+		var is_touch_tap: bool = (event.device == InputEvent.DEVICE_ID_EMULATION) or DisplayServer.is_touchscreen_available()
+		var hit := _hit_test(event.position, 1.45 if is_touch_tap else 1.0)
+		if is_touch_tap:
+			hovered_medal_id = ""
 		if hit != "":
 			selected_medal_id = hit
 			medal_selected.emit(hit)
 			queue_redraw()
 
-func _hit_test(p: Vector2) -> String:
+func _hit_test(p: Vector2, radius_mult: float = 1.0) -> String:
 	# Search in reverse so frontmost medals take priority
 	for i in range(_placed_medals.size() - 1, -1, -1):
 		var m: Dictionary = _placed_medals[i]
 		var pos: Vector2 = m["pos"]
-		var r: float = 18.0 * float(m["scale"])
+		var r: float = 18.0 * float(m["scale"]) * radius_mult
 		if p.distance_to(pos) <= r:
 			return String(m["id"])
 	return ""
 
 func _draw() -> void:
-	_rebuild_layout()
+	if _placed_medals.size() != mini(unlocked_ids.size(), MEDAL_SLOTS.size()):
+		_rebuild_layout()
 	var g := _get_anchor_and_scale()
 	var cx: float = g["cx"]
 	var cy: float = g["cy"]

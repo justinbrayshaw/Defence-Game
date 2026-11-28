@@ -15,8 +15,12 @@ var _players: Array[AudioStreamPlayer] = []
 var _next_player: int = 0
 var _last_played: Dictionary = {}
 
+var _pool_size: int = POOL_SIZE
+
 func _ready() -> void:
-	for i in range(POOL_SIZE):
+	if OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web"):
+		_pool_size = 12
+	for i in range(_pool_size):
 		var p := AudioStreamPlayer.new()
 		p.bus = "Master"
 		add_child(p)
@@ -38,7 +42,7 @@ func play(sound_name: String, volume_offset_db: float = 0.0, pitch_jitter: float
 	_last_played[sound_name] = now
 
 	var player: AudioStreamPlayer = _players[_next_player]
-	_next_player = (_next_player + 1) % POOL_SIZE
+	_next_player = (_next_player + 1) % _pool_size
 	player.stream = _streams[sound_name]
 	var base_db: float = linear_to_db(clampf(sfx_volume, 0.001, 1.0)) - 4.0
 	player.volume_db = base_db + volume_offset_db

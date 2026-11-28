@@ -439,7 +439,7 @@ void fragment() {
 		}
 	}
 
-	// Drifting soft cloud shadows (2-octave lightweight pass; skipped on airless Moon / Europa)
+	// Drifting soft cloud shadows (skipped on airless Moon / Europa)
 	if (biome_type != 13 && biome_type != 15) {
 		vec2 cloud_uv = wp * 0.0013 + vec2(TIME * 0.014, TIME * 0.007);
 		float cloud = smoothstep(0.50, 0.80, fbm2(cloud_uv));

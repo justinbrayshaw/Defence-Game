@@ -3,6 +3,21 @@ extends Node2D
 
 const MAX_PARTICLES: int = 360
 const MAX_RINGS: int = 48
+const MAX_PARTICLES_MOBILE: int = 160
+const MAX_RINGS_MOBILE: int = 24
+
+var _max_particles: int = MAX_PARTICLES
+var _max_rings: int = MAX_RINGS
+var _is_mobile_perf: bool = false
+
+func _ready() -> void:
+	_is_mobile_perf = OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+	if _is_mobile_perf:
+		_max_particles = MAX_PARTICLES_MOBILE
+		_max_rings = MAX_RINGS_MOBILE
+
+func get_particle_count() -> int:
+	return _particles.size()
 
 var _particles: Array[Dictionary] = []
 var _rings: Array[Dictionary] = []
@@ -16,6 +31,7 @@ var _pending_fireworks: Array[Dictionary] = []
 var airstrike_aiming: bool = false
 var airstrike_aim_pos: Vector2 = Vector2.ZERO
 var airstrike_radius: float = 125.0
+var airstrike_label: String = "HELLFIRE STRIKE"
 
 # Hunter Drone manual target assignment reticle
 var drone_assign_aiming: bool = false
@@ -70,7 +86,7 @@ func spawn_muzzle_flash(pos: Vector2, angle: float, size: float = 12.0, color: C
 	})
 
 func spawn_shell_casing(pos: Vector2, eject_angle: float) -> void:
-	if _particles.size() >= MAX_PARTICLES:
+	if _particles.size() >= _max_particles:
 		return
 	var spd := randf_range(38.0, 74.0)
 	var ang := eject_angle + randf_range(-0.35, 0.35)
@@ -90,7 +106,7 @@ func spawn_shell_casing(pos: Vector2, eject_angle: float) -> void:
 	})
 
 func spawn_smoke(pos: Vector2, size: float = 7.0, life: float = 0.55, darkness: float = 0.28) -> void:
-	if _particles.size() >= MAX_PARTICLES:
+	if _particles.size() >= _max_particles:
 		return
 	var drift := Vector2(randf_range(-14.0, 14.0), randf_range(-18.0, -6.0))
 	_particles.append({
@@ -107,7 +123,7 @@ func spawn_smoke(pos: Vector2, size: float = 7.0, life: float = 0.55, darkness: 
 	})
 
 func spawn_dust(pos: Vector2, size: float = 5.0, life: float = 0.48) -> void:
-	if _particles.size() >= MAX_PARTICLES:
+	if _particles.size() >= _max_particles:
 		return
 	var drift := Vector2(randf_range(-8.0, 8.0), randf_range(-8.0, 8.0))
 	_particles.append({
@@ -124,7 +140,7 @@ func spawn_dust(pos: Vector2, size: float = 5.0, life: float = 0.48) -> void:
 	})
 
 func spawn_contrail(pos: Vector2, size: float = 2.6, life: float = 0.42) -> void:
-	if _particles.size() >= MAX_PARTICLES:
+	if _particles.size() >= _max_particles:
 		return
 	_particles.append({
 		"pos": pos,
@@ -140,7 +156,10 @@ func spawn_contrail(pos: Vector2, size: float = 2.6, life: float = 0.42) -> void
 	})
 
 func spawn_spark_hit(pos: Vector2, color: Color = Color(1.0, 0.82, 0.35), count: int = 6) -> void:
-	for _i in range(count):
+	var n_sparks: int = maxi(1, count / 2) if _is_mobile_perf else count
+	for _i in range(n_sparks):
+		if _particles.size() >= _max_particles:
+			return
 		var ang := randf_range(0.0, TAU)
 		var spd := randf_range(50.0, 155.0)
 		_particles.append({
@@ -158,18 +177,19 @@ func spawn_spark_hit(pos: Vector2, color: Color = Color(1.0, 0.82, 0.35), count:
 
 func spawn_explosion(pos: Vector2, radius: float = 42.0, intense: bool = false) -> void:
 	# Bright initial shockwave ring
-	_rings.append({
-		"pos": pos,
-		"start_r": radius * 0.18,
-		"end_r": radius * 1.25,
-		"color": Color(1.0, 0.78, 0.38, 0.85),
-		"width": 3.5 if intense else 2.2,
-		"age": 0.0,
-		"life": 0.32 if intense else 0.24,
-	})
+	if _rings.size() < _max_rings:
+		_rings.append({
+			"pos": pos,
+			"start_r": radius * 0.18,
+			"end_r": radius * 1.25,
+			"color": Color(1.0, 0.78, 0.38, 0.85),
+			"width": 3.5 if intense else 2.2,
+			"age": 0.0,
+			"life": 0.32 if intense else 0.24,
+		})
 
 	# Secondary dark shockwave ring for heavy blasts
-	if intense:
+	if intense and _rings.size() < _max_rings:
 		_rings.append({
 			"pos": pos,
 			"start_r": radius * 0.1,
@@ -179,6 +199,9 @@ func spawn_explosion(pos: Vector2, radius: float = 42.0, intense: bool = false) 
 			"age": 0.0,
 			"life": 0.45,
 		})
+
+	if _particles.size() >= _max_particles:
+		return
 
 	# Core hot flash
 	_particles.append({
@@ -195,8 +218,10 @@ func spawn_explosion(pos: Vector2, radius: float = 42.0, intense: bool = false) 
 	})
 
 	# Fireball plumes
-	var fire_count := 12 if intense else 7
+	var fire_count := (6 if intense else 4) if _is_mobile_perf else (12 if intense else 7)
 	for _i in range(fire_count):
+		if _particles.size() >= _max_particles:
+			return
 		var ang := randf_range(0.0, TAU)
 		var spd := randf_range(radius * 0.4, radius * 2.1)
 		_particles.append({
@@ -213,8 +238,10 @@ func spawn_explosion(pos: Vector2, radius: float = 42.0, intense: bool = false) 
 		})
 
 	# Billowing smoke puffs
-	var smoke_count := 14 if intense else 8
+	var smoke_count := (6 if intense else 3) if _is_mobile_perf else (14 if intense else 8)
 	for _i in range(smoke_count):
+		if _particles.size() >= _max_particles:
+			return
 		var ang := randf_range(0.0, TAU)
 		var spd := randf_range(radius * 0.25, radius * 1.45)
 		var shade := randf_range(0.14, 0.28)
@@ -232,8 +259,10 @@ func spawn_explosion(pos: Vector2, radius: float = 42.0, intense: bool = false) 
 		})
 
 	# Shrapnel / glowing sparks
-	var spark_count := 16 if intense else 8
+	var spark_count := (7 if intense else 4) if _is_mobile_perf else (16 if intense else 8)
 	for _i in range(spark_count):
+		if _particles.size() >= _max_particles:
+			return
 		var ang := randf_range(0.0, TAU)
 		var spd := randf_range(radius * 2.2, radius * 5.2)
 		_particles.append({
@@ -413,16 +442,21 @@ func _process(delta: float) -> void:
 
 	var active := airstrike_aiming or drone_assign_aiming or had_beams or not _beams.is_empty() or not _particles.is_empty() or not _rings.is_empty() or not _flashes.is_empty() or not _texts.is_empty() or not _jets.is_empty() or not _pending_fireworks.is_empty()
 
-	if _particles.size() > MAX_PARTICLES:
-		_particles = _particles.slice(_particles.size() - MAX_PARTICLES)
-	if _rings.size() > MAX_RINGS:
-		_rings = _rings.slice(_rings.size() - MAX_RINGS)
+	if _particles.size() > _max_particles:
+		_particles = _particles.slice(_particles.size() - _max_particles)
+	if _rings.size() > _max_rings:
+		_rings = _rings.slice(_rings.size() - _max_rings)
 
-	for i in range(_particles.size() - 1, -1, -1):
-		var p := _particles[i]
+	var p_i: int = _particles.size() - 1
+	while p_i >= 0:
+		var p := _particles[p_i]
 		p["age"] = float(p["age"]) + delta
 		if float(p["age"]) >= float(p["life"]):
-			_particles.remove_at(i)
+			var last_idx: int = _particles.size() - 1
+			if p_i != last_idx:
+				_particles[p_i] = _particles[last_idx]
+			_particles.pop_back()
+			p_i -= 1
 			continue
 		var vel: Vector2 = p["vel"]
 		var drag: float = p["drag"]
@@ -431,18 +465,29 @@ func _process(delta: float) -> void:
 		p["pos"] = Vector2(p["pos"]) + vel * delta
 		if p.has("rot"):
 			p["rot"] = float(p["rot"]) + float(p["rot_spd"]) * delta
+		p_i -= 1
 
-	for i in range(_rings.size() - 1, -1, -1):
-		var r := _rings[i]
+	var r_i: int = _rings.size() - 1
+	while r_i >= 0:
+		var r := _rings[r_i]
 		r["age"] = float(r["age"]) + delta
 		if float(r["age"]) >= float(r["life"]):
-			_rings.remove_at(i)
+			var last_r: int = _rings.size() - 1
+			if r_i != last_r:
+				_rings[r_i] = _rings[last_r]
+			_rings.pop_back()
+		r_i -= 1
 
-	for i in range(_flashes.size() - 1, -1, -1):
-		var f := _flashes[i]
+	var f_i: int = _flashes.size() - 1
+	while f_i >= 0:
+		var f := _flashes[f_i]
 		f["age"] = float(f["age"]) + delta
 		if float(f["age"]) >= float(f["life"]):
-			_flashes.remove_at(i)
+			var last_f: int = _flashes.size() - 1
+			if f_i != last_f:
+				_flashes[f_i] = _flashes[last_f]
+			_flashes.pop_back()
+		f_i -= 1
 
 	for i in range(_texts.size() - 1, -1, -1):
 		var t := _texts[i]
@@ -472,6 +517,7 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
+	var use_aa: bool = not _is_mobile_perf
 	# 1. Particles
 	for p in _particles:
 		var u := clampf(float(p["age"]) / float(p["life"]), 0.0, 1.0)
@@ -485,19 +531,20 @@ func _draw() -> void:
 		elif shape == "spark":
 			var vel: Vector2 = p["vel"]
 			var tail := pos - vel.normalized() * minf(12.0, vel.length() * 0.055)
-			draw_line(tail, pos, col, maxf(1.2, sz * 0.75), true)
+			draw_line(tail, pos, col, maxf(1.2, sz * 0.75), use_aa)
 		elif shape == "casing":
 			var d := Vector2.from_angle(float(p["rot"])) * sz
-			draw_line(pos - d, pos + d, col, 1.8, true)
+			draw_line(pos - d, pos + d, col, 1.8, use_aa)
 
 	# 2. Shockwave rings
+	var ring_segs: int = 18 if _is_mobile_perf else 36
 	for r in _rings:
 		var u := clampf(float(r["age"]) / float(r["life"]), 0.0, 1.0)
 		var eased := 1.0 - pow(1.0 - u, 2.2)
 		var rad := lerpf(float(r["start_r"]), float(r["end_r"]), eased)
 		var col: Color = r["color"]
 		col.a *= (1.0 - u)
-		draw_arc(r["pos"], rad, 0.0, TAU, 36, col, float(r["width"]) * (1.0 - u * 0.5), true)
+		draw_arc(r["pos"], rad, 0.0, TAU, ring_segs, col, float(r["width"]) * (1.0 - u * 0.5), use_aa)
 
 	# 3. Muzzle flashes
 	for f in _flashes:
@@ -527,9 +574,9 @@ func _draw() -> void:
 		var outer_w: float = lerpf(5.0, 10.5, ramp)
 		var mid_w: float = lerpf(2.6, 5.4, ramp)
 		var core_w: float = lerpf(1.2, 2.6, ramp)
-		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.28 + ramp * 0.20), outer_w, true)
-		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.86), mid_w, true)
-		draw_line(from_p, to_p, Color(1.0, 0.94, 0.98, 0.96), core_w, true)
+		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.28 + ramp * 0.20), outer_w, use_aa)
+		draw_line(from_p, to_p, Color(col.r, col.g, col.b, 0.86), mid_w, use_aa)
+		draw_line(from_p, to_p, Color(1.0, 0.94, 0.98, 0.96), core_w, use_aa)
 		# Thermal impact flare at lock point
 		var flare_r: float = lerpf(5.0, 11.5, ramp) * (0.85 + 0.15 * sin(_time * 42.0))
 		draw_circle(to_p, flare_r, Color(col.r, col.g, col.b, 0.38))
@@ -652,7 +699,16 @@ func _draw_airstrike_reticle() -> void:
 		var a := rot + float(i) * PI * 0.5
 		draw_arc(p, r + 9.0, a - 0.22, a + 0.22, 8, Color(1.0, 0.80, 0.32, 0.9), 3.0, true)
 
-	draw_string(ThemeDB.fallback_font, p + Vector2(-58.0, -r - 16.0), "HELLFIRE STRIKE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.82, 0.40, 0.95))
+	var font := ThemeDB.fallback_font
+	var fsize := 13
+	var tsz := font.get_string_size(airstrike_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+	var ly: float = p.y - r - 16.0
+	if ly < 56.0:
+		ly = p.y + r + 24.0
+	var box := Rect2(p.x - tsz.x * 0.5 - 9.0, ly - float(fsize) - 4.0, tsz.x + 18.0, float(fsize) + 10.0)
+	draw_rect(box, Color(0.08, 0.04, 0.04, 0.90))
+	draw_rect(box, Color(1.0, 0.56, 0.24, 0.92), false, 1.5)
+	draw_string(font, Vector2(p.x - tsz.x * 0.5, ly), airstrike_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(1.0, 0.88, 0.44, 0.98))
 
 func _draw_drone_assign_reticle() -> void:
 	var p: Vector2 = drone_assign_target_pos if drone_assign_has_target else drone_assign_pos

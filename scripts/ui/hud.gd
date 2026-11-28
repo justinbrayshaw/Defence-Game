@@ -23,6 +23,8 @@ signal target_mode_requested()
 signal sell_requested()
 signal drone_hold_toggled()
 signal drone_assign_requested()
+signal inspector_close_requested()
+signal title_easter_egg_tapped(tap_count: int)
 
 const COL_BG := Color(0.08, 0.10, 0.09, 0.90)
 const COL_BG_DARK := Color(0.05, 0.06, 0.06, 0.94)
@@ -34,6 +36,9 @@ const COL_GREEN := Color(0.34, 0.88, 0.48)
 const COL_RED := Color(0.94, 0.30, 0.24)
 
 var _root: Control
+var _safe_root: Control
+var _top_bar: PanelContainer
+var _bottom_dock: PanelContainer
 var _sector_label: Label
 var _cash_label: Label
 var _lives_label: Label
@@ -42,6 +47,7 @@ var _diff_label: Label
 var _pause_btn: Button
 var _speed_btns: Dictionary = {}
 var _mute_btn: Button
+var _menu_btn: Button
 
 var _turret_btns: Dictionary = {}
 var _airstrike_btn: Button
@@ -50,6 +56,7 @@ var _next_wave_btn: Button
 
 var _inspector_panel: PanelContainer
 var _insp_title: Label
+var _insp_close_btn: Button
 var _insp_stats: Label
 var _insp_upgrade_btn: Button
 var _insp_target_btn: Button
@@ -96,10 +103,25 @@ var _last_preview_key: String = ""
 # Pause & Audio overlays
 var _pause_overlay: ColorRect
 var _pause_sub: Label
+var _pause_resume_btn: Button
 var _pause_medals_btn: Button
 var _pause_restart_btn: Button
 var _pause_briefing_btn: Button
 var _audio_overlay: ColorRect
+var _medals_close_btn: Button
+var _about_close_btn: Button
+var _menu_controls_lbl: Label
+
+# Touch & safe-area layout state
+var _is_touch_mode: bool = false
+var _safe_pad_l: float = 0.0
+var _safe_pad_r: float = 0.0
+var _safe_pad_t: float = 0.0
+var _safe_pad_b: float = 0.0
+var _title_tap_count: int = 0
+var _title_tap_timer: float = 0.0
+var _medals_dirty: bool = true
+var _insp_layout_key: String = ""
 
 # Hall of Decorations (North Korean General) overlay & award toast
 var _medals_overlay: ColorRect
@@ -154,10 +176,155 @@ var _end_next_btn: Button
 var _end_secret_btn: Button
 var _secret_map_id: String = ""
 var _btn_style_cache: Dictionary = {}
+var _shared_btn_styles: Dictionary = {}
+var _medals_warmed: bool = false
 
 func _ready() -> void:
 	layer = 10
 	_build_ui()
+	get_viewport().size_changed.connect(_apply_safe_area)
+	_apply_safe_area()
+
+func set_touch_mode(enabled: bool) -> void:
+	_is_touch_mode = enabled
+	_apply_touch_mode_layout()
+
+func get_hud_safe_margins() -> Dictionary:
+	var top_bar_h: float = 54.0 if _is_touch_mode else 58.0
+	var bot_bar_h: float = 84.0 if _is_touch_mode else 104.0
+	return {
+		"top": _safe_pad_t + top_bar_h,
+		"bottom": _safe_pad_b + bot_bar_h,
+		"left": _safe_pad_l,
+		"right": _safe_pad_r,
+	}
+
+func _apply_safe_area() -> void:
+	if _safe_root == null:
+		return
+	var win_size := Vector2(DisplayServer.window_get_size())
+	var vp_size := get_viewport().get_visible_rect().size
+	var safe_px := DisplayServer.get_display_safe_area()
+	_safe_pad_l = 0.0
+	_safe_pad_t = 0.0
+	_safe_pad_r = 0.0
+	_safe_pad_b = 0.0
+	if win_size.x > 0.0 and win_size.y > 0.0 and safe_px.size.x > 0 and safe_px.size.y > 0:
+		var sx: float = vp_size.x / win_size.x
+		var sy: float = vp_size.y / win_size.y
+		_safe_pad_l = maxf(0.0, float(safe_px.position.x) * sx)
+		_safe_pad_t = maxf(0.0, float(safe_px.position.y) * sy)
+		_safe_pad_r = maxf(0.0, (win_size.x - float(safe_px.end.x)) * sx)
+		_safe_pad_b = maxf(0.0, (win_size.y - float(safe_px.end.y)) * sy)
+	_safe_root.offset_left = _safe_pad_l
+	_safe_root.offset_top = _safe_pad_t
+	_safe_root.offset_right = -_safe_pad_r
+	_safe_root.offset_bottom = -_safe_pad_b
+	_apply_touch_mode_layout()
+
+func _apply_touch_mode_layout() -> void:
+	if _top_bar == null or _bottom_dock == null:
+		return
+	var top_h: float = 46.0 if _is_touch_mode else 44.0
+	var top_off: float = 4.0 if _is_touch_mode else 8.0
+	_top_bar.offset_left = 6.0 if _is_touch_mode else 10.0
+	_top_bar.offset_right = -6.0 if _is_touch_mode else -10.0
+	_top_bar.offset_top = top_off
+	_top_bar.offset_bottom = top_off + top_h
+	_top_bar.add_theme_stylebox_override("panel", _make_box(Color(0.07, 0.09, 0.08, 0.78) if _is_touch_mode else COL_BG, COL_BORDER, 4, 1, 12 if _is_touch_mode else 14, 4 if _is_touch_mode else 6))
+	var btn_h: float = 36.0 if _is_touch_mode else 28.0
+	if _pause_btn != null:
+		_pause_btn.custom_minimum_size = Vector2(44.0 if _is_touch_mode else 36.0, btn_h)
+	for sb in _speed_btns.values():
+		(sb as Button).custom_minimum_size = Vector2(44.0 if _is_touch_mode else 38.0, btn_h)
+	if _mute_btn != null:
+		_mute_btn.custom_minimum_size = Vector2(68.0 if _is_touch_mode else 58.0, btn_h)
+	if _menu_btn != null:
+		_menu_btn.custom_minimum_size = Vector2(68.0 if _is_touch_mode else 58.0, btn_h)
+
+	if _banner_panel != null:
+		_banner_panel.offset_top = 56.0 if _is_touch_mode else 62.0
+		_banner_panel.offset_bottom = 92.0 if _is_touch_mode else 98.0
+
+	var card_h: float = 66.0 if _is_touch_mode else 66.0
+	var card_w: float = 90.0 if _is_touch_mode else 86.0
+	var dock_pad_y: int = 5 if _is_touch_mode else 7
+	var dock_h: float = card_h + float(dock_pad_y * 2 + 2)
+	var bot_gap: float = 4.0 if _is_touch_mode else 10.0
+	_bottom_dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 6, dock_pad_y))
+	if _is_touch_mode:
+		_bottom_dock.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		_bottom_dock.offset_left = 0.0
+		_bottom_dock.offset_right = 0.0
+	else:
+		_bottom_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_END
+		_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		_bottom_dock.offset_left = 10.0
+		_bottom_dock.offset_right = 10.0
+	_bottom_dock.offset_top = -bot_gap - dock_h
+	_bottom_dock.offset_bottom = -bot_gap
+	for t_type in _turret_btns.keys():
+		var cfg := TurretData.get_config(t_type)
+		var btn: Button = _turret_btns[t_type]
+		btn.custom_minimum_size = Vector2(card_w, card_h)
+		btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+		if _is_touch_mode:
+			btn.text = "%s\n$%d\n%s" % [cfg["short"], int(cfg["base_cost"]), cfg["role"]]
+		else:
+			btn.text = "[%s] %s\n$%d\n%s" % [cfg["hotkey"], cfg["short"], int(cfg["base_cost"]), cfg["role"]]
+
+	if _airstrike_btn != null:
+		_airstrike_btn.custom_minimum_size = Vector2(102.0 if _is_touch_mode else 96.0, card_h)
+		_airstrike_btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+	if _next_wave_btn != null:
+		_next_wave_btn.custom_minimum_size = Vector2(100.0 if _is_touch_mode else 94.0, card_h)
+		_next_wave_btn.add_theme_font_size_override("font_size", 11 if _is_touch_mode else 10)
+
+	if _insp_close_btn != null:
+		_insp_close_btn.visible = _is_touch_mode
+	var insp_btn_h: float = 38.0 if _is_touch_mode else 24.0
+	var insp_fsize: int = 12 if _is_touch_mode else 11
+	if _insp_upgrade_btn != null:
+		_insp_upgrade_btn.custom_minimum_size = Vector2(0, insp_btn_h)
+		_insp_upgrade_btn.add_theme_font_size_override("font_size", insp_fsize)
+	if _insp_target_btn != null:
+		_insp_target_btn.custom_minimum_size = Vector2(124.0 if _is_touch_mode else 90.0, insp_btn_h)
+		_insp_target_btn.add_theme_font_size_override("font_size", insp_fsize)
+	if _insp_sell_btn != null:
+		_insp_sell_btn.custom_minimum_size = Vector2(114.0 if _is_touch_mode else 82.0, insp_btn_h)
+		_insp_sell_btn.add_theme_font_size_override("font_size", insp_fsize)
+	if _insp_drone_hold_btn != null:
+		_insp_drone_hold_btn.custom_minimum_size = Vector2(150.0 if _is_touch_mode else 124.0, insp_btn_h)
+		_insp_drone_hold_btn.add_theme_font_size_override("font_size", insp_fsize)
+	if _insp_drone_assign_btn != null:
+		_insp_drone_assign_btn.custom_minimum_size = Vector2(0, insp_btn_h)
+		_insp_drone_assign_btn.add_theme_font_size_override("font_size", insp_fsize)
+
+	if _pause_resume_btn != null:
+		_pause_resume_btn.text = "RESUME MISSION" if _is_touch_mode else "RESUME MISSION  [ESC]"
+	if _medals_close_btn != null:
+		_medals_close_btn.text = "CLOSE" if _is_touch_mode else "CLOSE  [ESC]"
+	if _about_close_btn != null:
+		_about_close_btn.text = "CLOSE" if _is_touch_mode else "CLOSE  [ESC]"
+	if _menu_controls_lbl != null:
+		if _is_touch_mode:
+			_menu_controls_lbl.text = "TOUCH CONTROLS:  Tap Turret & Tap Pad Twice to Build  •  Tap Turret to Upgrade / Sell\nAir Strike: Tap Map to Aim, Tap Reticle to Strike  •  1-Finger Drag to Pan  •  2-Finger Pinch to Zoom"
+		else:
+			_menu_controls_lbl.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB] Cancel  •  [ESC] Cancel / Pause Menu\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Tactical Freeze"
+
+	_update_wave_preview_offset(false)
+
+func _update_wave_preview_offset(inspector_active_drone: bool) -> void:
+	if _wave_preview_panel == null:
+		return
+	var bot_clearance: float = 86.0 if _is_touch_mode else 96.0
+	if _is_touch_mode and _inspector_panel != null and _inspector_panel.visible:
+		bot_clearance = 148.0 if inspector_active_drone else 108.0
+	_wave_preview_panel.offset_bottom = -bot_clearance
+	_wave_preview_panel.offset_top = -bot_clearance - 28.0
 
 func _process(delta: float) -> void:
 	var real_delta: float = delta / maxf(0.01, Engine.time_scale)
@@ -182,6 +349,11 @@ func _process(delta: float) -> void:
 		_confirm_reset_save_timer -= real_delta
 		if _confirm_reset_save_timer <= 0.0:
 			_reset_save_confirm_btn()
+
+	if _title_tap_timer > 0.0:
+		_title_tap_timer -= real_delta
+		if _title_tap_timer <= 0.0:
+			_reset_title_easter_egg()
 
 	# Medal awarded toast queue
 	if _medal_toast_timer > 0.0:
@@ -216,10 +388,22 @@ func _make_box(bg: Color, border: Color, radius: int = 4, border_w: int = 1, pad
 	return sb
 
 func _style_button(btn: Button, accent: Color = COL_BORDER, bg: Color = Color(0.12, 0.15, 0.13, 0.95), pad_x: int = 10, pad_y: int = 6) -> void:
-	btn.add_theme_stylebox_override("normal", _make_box(bg, accent, 4, 1, pad_x, pad_y))
-	btn.add_theme_stylebox_override("hover", _make_box(bg.lightened(0.08), accent.lightened(0.22), 4, 1, pad_x, pad_y))
-	btn.add_theme_stylebox_override("pressed", _make_box(bg.darkened(0.12), accent.lightened(0.35), 4, 2, pad_x, pad_y))
-	btn.add_theme_stylebox_override("disabled", _make_box(Color(0.08, 0.09, 0.08, 0.72), Color(0.20, 0.22, 0.20, 0.6), 4, 1, pad_x, pad_y))
+	var skey := "%s|%s|%d|%d" % [accent.to_html(true), bg.to_html(true), pad_x, pad_y]
+	var pack: Dictionary
+	if _shared_btn_styles.has(skey):
+		pack = _shared_btn_styles[skey]
+	else:
+		pack = {
+			"normal": _make_box(bg, accent, 4, 1, pad_x, pad_y),
+			"hover": _make_box(bg.lightened(0.08), accent.lightened(0.22), 4, 1, pad_x, pad_y),
+			"pressed": _make_box(bg.darkened(0.12), accent.lightened(0.35), 4, 2, pad_x, pad_y),
+			"disabled": _make_box(Color(0.08, 0.09, 0.08, 0.72), Color(0.20, 0.22, 0.20, 0.6), 4, 1, pad_x, pad_y),
+		}
+		_shared_btn_styles[skey] = pack
+	btn.add_theme_stylebox_override("normal", pack["normal"])
+	btn.add_theme_stylebox_override("hover", pack["hover"])
+	btn.add_theme_stylebox_override("pressed", pack["pressed"])
+	btn.add_theme_stylebox_override("disabled", pack["disabled"])
 	btn.add_theme_color_override("font_color", COL_TEXT)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_disabled_color", Color(0.45, 0.48, 0.45))
@@ -238,6 +422,11 @@ func _build_ui() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 
+	_safe_root = Control.new()
+	_safe_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_safe_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_safe_root)
+
 	_build_top_bar()
 	_build_wave_banner()
 	_build_wave_preview()
@@ -252,18 +441,18 @@ func _build_ui() -> void:
 	_build_medal_toast()
 
 func _build_top_bar() -> void:
-	var bar := PanelContainer.new()
-	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	bar.offset_left = 10
-	bar.offset_right = -10
-	bar.offset_top = 8
-	bar.offset_bottom = 52
-	bar.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 4, 1, 14, 6))
-	_root.add_child(bar)
+	_top_bar = PanelContainer.new()
+	_top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_top_bar.offset_left = 10
+	_top_bar.offset_right = -10
+	_top_bar.offset_top = 8
+	_top_bar.offset_bottom = 52
+	_top_bar.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 4, 1, 14, 6))
+	_safe_root.add_child(_top_bar)
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 18)
-	bar.add_child(hbox)
+	_top_bar.add_child(hbox)
 
 	_sector_label = Label.new()
 	_sector_label.text = "IRON VALLEY"
@@ -326,12 +515,12 @@ func _build_top_bar() -> void:
 	_mute_btn.pressed.connect(func(): mute_toggled.emit())
 	hbox.add_child(_mute_btn)
 
-	var menu_btn := Button.new()
-	menu_btn.text = "MENU"
-	menu_btn.custom_minimum_size = Vector2(58, 28)
-	_style_button(menu_btn, Color(0.55, 0.45, 0.28))
-	menu_btn.pressed.connect(func(): pause_menu_requested.emit())
-	hbox.add_child(menu_btn)
+	_menu_btn = Button.new()
+	_menu_btn.text = "MENU"
+	_menu_btn.custom_minimum_size = Vector2(58, 28)
+	_style_button(_menu_btn, Color(0.55, 0.45, 0.28))
+	_menu_btn.pressed.connect(func(): pause_menu_requested.emit())
+	hbox.add_child(_menu_btn)
 
 func _build_wave_banner() -> void:
 	_banner_panel = PanelContainer.new()
@@ -343,7 +532,7 @@ func _build_wave_banner() -> void:
 	_banner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner_panel.add_theme_stylebox_override("panel", _make_box(Color(0.09, 0.11, 0.09, 0.88), COL_AMBER, 4, 1, 16, 6))
 	_banner_panel.visible = false
-	_root.add_child(_banner_panel)
+	_safe_root.add_child(_banner_panel)
 
 	_banner_label = Label.new()
 	_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -353,20 +542,20 @@ func _build_wave_banner() -> void:
 	_banner_panel.add_child(_banner_label)
 
 func _build_bottom_dock() -> void:
-	var dock := PanelContainer.new()
-	dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	dock.grow_horizontal = Control.GROW_DIRECTION_END
-	dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	dock.offset_left = 10
-	dock.offset_right = 10
-	dock.offset_top = -92
-	dock.offset_bottom = -10
-	dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 6, 7))
-	_root.add_child(dock)
+	_bottom_dock = PanelContainer.new()
+	_bottom_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_bottom_dock.grow_horizontal = Control.GROW_DIRECTION_END
+	_bottom_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_bottom_dock.offset_left = 10
+	_bottom_dock.offset_right = 10
+	_bottom_dock.offset_top = -92
+	_bottom_dock.offset_bottom = -10
+	_bottom_dock.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_BORDER, 5, 1, 6, 7))
+	_safe_root.add_child(_bottom_dock)
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 4)
-	dock.add_child(hbox)
+	_bottom_dock.add_child(hbox)
 
 	for t_type in TurretData.get_all_types():
 		var cfg := TurretData.get_config(t_type)
@@ -426,21 +615,39 @@ func _build_inspector() -> void:
 	_inspector_panel.offset_bottom = -10
 	_inspector_panel.add_theme_stylebox_override("panel", _make_box(COL_BG, COL_AMBER, 5, 1, 10, 6))
 	_inspector_panel.visible = false
-	_root.add_child(_inspector_panel)
+	_safe_root.add_child(_inspector_panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 3)
+	vbox.add_theme_constant_override("separation", 4)
 	_inspector_panel.add_child(vbox)
+
+	var hdr_row := HBoxContainer.new()
+	hdr_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(hdr_row)
+
+	var info_v := VBoxContainer.new()
+	info_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_v.add_theme_constant_override("separation", 2)
+	hdr_row.add_child(info_v)
 
 	_insp_title = Label.new()
 	_insp_title.add_theme_font_size_override("font_size", 13)
 	_insp_title.add_theme_color_override("font_color", COL_AMBER)
-	vbox.add_child(_insp_title)
+	info_v.add_child(_insp_title)
 
 	_insp_stats = Label.new()
 	_insp_stats.add_theme_font_size_override("font_size", 11)
 	_insp_stats.add_theme_color_override("font_color", COL_TEXT)
-	vbox.add_child(_insp_stats)
+	info_v.add_child(_insp_stats)
+
+	_insp_close_btn = Button.new()
+	_insp_close_btn.text = "✕"
+	_insp_close_btn.custom_minimum_size = Vector2(36, 36)
+	_insp_close_btn.add_theme_font_size_override("font_size", 14)
+	_style_button(_insp_close_btn, COL_BORDER, Color(0.14, 0.16, 0.14, 0.96), 4, 2)
+	_insp_close_btn.visible = false
+	_insp_close_btn.pressed.connect(func(): inspector_close_requested.emit())
+	hdr_row.add_child(_insp_close_btn)
 
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 6)
@@ -501,7 +708,7 @@ func _build_wave_preview() -> void:
 	_wave_preview_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_wave_preview_panel.add_theme_stylebox_override("panel", _make_box(Color(0.07, 0.09, 0.08, 0.88), COL_BORDER, 4, 1, 10, 4))
 	_wave_preview_panel.visible = false
-	_root.add_child(_wave_preview_panel)
+	_safe_root.add_child(_wave_preview_panel)
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 8)
@@ -725,16 +932,16 @@ func _build_pause_overlay() -> void:
 	_build_audio_controls(vbox)
 	vbox.add_child(HSeparator.new())
 
-	var resume_btn := Button.new()
-	resume_btn.text = "RESUME MISSION  [ESC]"
-	resume_btn.custom_minimum_size = Vector2(0, 42)
-	resume_btn.add_theme_font_size_override("font_size", 14)
-	_style_button(resume_btn, COL_GREEN, Color(0.11, 0.24, 0.13, 0.98))
-	resume_btn.pressed.connect(func():
+	_pause_resume_btn = Button.new()
+	_pause_resume_btn.text = "RESUME MISSION  [ESC]"
+	_pause_resume_btn.custom_minimum_size = Vector2(0, 42)
+	_pause_resume_btn.add_theme_font_size_override("font_size", 14)
+	_style_button(_pause_resume_btn, COL_GREEN, Color(0.11, 0.24, 0.13, 0.98))
+	_pause_resume_btn.pressed.connect(func():
 		hide_pause_menu()
 		pause_menu_resumed.emit()
 	)
-	vbox.add_child(resume_btn)
+	vbox.add_child(_pause_resume_btn)
 
 	_pause_medals_btn = Button.new()
 	_pause_medals_btn.text = "★ DECORATIONS (0/36)"
@@ -853,7 +1060,7 @@ func _build_medal_toast() -> void:
 	_medal_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_medal_toast_panel.add_theme_stylebox_override("panel", _make_box(Color(0.08, 0.10, 0.08, 0.95), COL_AMBER, 5, 2, 14, 8))
 	_medal_toast_panel.visible = false
-	_root.add_child(_medal_toast_panel)
+	_safe_root.add_child(_medal_toast_panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 2)
@@ -930,13 +1137,13 @@ func _build_medals_overlay() -> void:
 	_avatar_female_btn.pressed.connect(func(): _on_avatar_style_clicked("female"))
 	hdr.add_child(_avatar_female_btn)
 
-	var close_btn := Button.new()
-	close_btn.text = "CLOSE  [ESC]"
-	close_btn.custom_minimum_size = Vector2(108, 30)
-	close_btn.add_theme_font_size_override("font_size", 12)
-	_style_button(close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 3)
-	close_btn.pressed.connect(func(): hide_medals_hall())
-	hdr.add_child(close_btn)
+	_medals_close_btn = Button.new()
+	_medals_close_btn.text = "CLOSE  [ESC]"
+	_medals_close_btn.custom_minimum_size = Vector2(108, 30)
+	_medals_close_btn.add_theme_font_size_override("font_size", 12)
+	_style_button(_medals_close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 3)
+	_medals_close_btn.pressed.connect(func(): hide_medals_hall())
+	hdr.add_child(_medals_close_btn)
 
 	# Main 2-column showcase
 	var cols := HBoxContainer.new()
@@ -1038,6 +1245,7 @@ func set_medals_data(unlocked: Array[String], stats: Dictionary, sector_records:
 	_unlocked_medals = unlocked.duplicate()
 	_career_stats = stats.duplicate(true)
 	_sector_records = sector_records.duplicate(true)
+	_medals_dirty = true
 	var total := MedalData.get_all_medals().size()
 	var cnt := _unlocked_medals.size()
 	if _menu_medals_btn != null:
@@ -1046,6 +1254,19 @@ func set_medals_data(unlocked: Array[String], stats: Dictionary, sector_records:
 		_pause_medals_btn.text = "★ DECORATIONS (%d/%d)" % [cnt, total]
 	if _medals_overlay != null and _medals_overlay.visible:
 		_refresh_medals_hall()
+	elif not _medals_warmed and _medals_overlay != null:
+		_medals_warmed = true
+		call_deferred("_warm_medals_hall_once")
+
+func _warm_medals_hall_once() -> void:
+	if _medals_overlay == null or not _medals_dirty:
+		return
+	if _selected_medal_id == "":
+		if not _unlocked_medals.is_empty():
+			_selected_medal_id = _unlocked_medals[_unlocked_medals.size() - 1]
+		else:
+			_selected_medal_id = String(MedalData.get_all_medals()[0]["id"])
+	_refresh_medals_hall()
 
 func show_medals_hall() -> void:
 	if _selected_medal_id == "":
@@ -1053,7 +1274,8 @@ func show_medals_hall() -> void:
 			_selected_medal_id = _unlocked_medals[_unlocked_medals.size() - 1]
 		else:
 			_selected_medal_id = String(MedalData.get_all_medals()[0]["id"])
-	_refresh_medals_hall()
+	if _medals_dirty:
+		_refresh_medals_hall()
 	_medals_overlay.visible = true
 
 func hide_medals_hall() -> void:
@@ -1064,6 +1286,8 @@ func is_medals_hall_visible() -> bool:
 	return _medals_overlay != null and _medals_overlay.visible
 
 func _on_medal_selected(medal_id: String) -> void:
+	if _selected_medal_id == medal_id:
+		return
 	_selected_medal_id = medal_id
 	_general_view.set_selected_medal(medal_id)
 	_refresh_medal_detail()
@@ -1075,7 +1299,8 @@ func set_general_avatar(style: String) -> void:
 		_general_view.set_avatar_style(_avatar_style)
 	_refresh_avatar_toggle_btns()
 	if _medals_overlay != null and _medals_overlay.visible:
-		_refresh_medals_hall()
+		_refresh_medals_weight_label()
+		_refresh_medal_detail()
 
 func _on_avatar_style_clicked(style: String) -> void:
 	if _avatar_style == style:
@@ -1087,18 +1312,11 @@ func _refresh_avatar_toggle_btns() -> void:
 	if _avatar_male_btn == null or _avatar_female_btn == null:
 		return
 	var is_f := (_avatar_style == "female")
-	_style_button(_avatar_male_btn, COL_AMBER if not is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if not is_f else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
-	_style_button(_avatar_female_btn, COL_AMBER if is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if is_f else Color(0.10, 0.12, 0.11, 0.92), 8, 2)
+	_style_button_cached(_avatar_male_btn, "sel" if not is_f else "off", COL_AMBER if not is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if not is_f else Color(0.10, 0.12, 0.11, 0.92), COL_TEXT, 8, 2)
+	_style_button_cached(_avatar_female_btn, "sel" if is_f else "off", COL_AMBER if is_f else COL_BORDER, Color(0.20, 0.22, 0.14, 0.98) if is_f else Color(0.10, 0.12, 0.11, 0.92), COL_TEXT, 8, 2)
 
-func _refresh_medals_hall() -> void:
-	var all_medals := MedalData.get_all_medals()
+func _refresh_medals_weight_label() -> void:
 	var cnt := _unlocked_medals.size()
-	var total := all_medals.size()
-	_general_view.set_avatar_style(_avatar_style)
-	_general_view.set_medals(_unlocked_medals, _selected_medal_id)
-	_refresh_avatar_toggle_btns()
-	_medals_count_lbl.text = "DECORATIONS PINNED: %d / %d" % [cnt, total]
-
 	var grams := 0
 	for mid in _unlocked_medals:
 		var d := MedalData.get_medal_by_id(mid)
@@ -1118,6 +1336,17 @@ func _refresh_medals_hall() -> void:
 	elif cnt >= 1:
 		advisory = "REGULATION POLISH — ROOM FOR MORE"
 	_medals_weight_lbl.text = "UNIFORM HARDWARE: %.1f kg  •  %s" % [kg, advisory]
+
+func _refresh_medals_hall() -> void:
+	_medals_dirty = false
+	var all_medals := MedalData.get_all_medals()
+	var cnt := _unlocked_medals.size()
+	var total := all_medals.size()
+	_general_view.set_avatar_style(_avatar_style)
+	_general_view.set_medals(_unlocked_medals, _selected_medal_id)
+	_refresh_avatar_toggle_btns()
+	_medals_count_lbl.text = "DECORATIONS PINNED: %d / %d" % [cnt, total]
+	_refresh_medals_weight_label()
 
 	for m in all_medals:
 		var mid: String = String(m["id"])
@@ -1139,14 +1368,11 @@ func _refresh_medal_list_styles() -> void:
 		var is_sel: bool = (mid == _selected_medal_id)
 		var mcol: Color = m.get("metal", COL_AMBER)
 		if is_sel:
-			_style_button(btn, Color.WHITE, Color(0.18, 0.22, 0.16, 0.98), 10, 3)
-			btn.add_theme_color_override("font_color", Color.WHITE)
+			_style_button_cached(btn, "sel", Color.WHITE, Color(0.18, 0.22, 0.16, 0.98), Color.WHITE, 10, 3)
 		elif earned:
-			_style_button(btn, mcol.darkened(0.25), Color(0.12, 0.15, 0.11, 0.96), 10, 3)
-			btn.add_theme_color_override("font_color", mcol.lightened(0.15))
+			_style_button_cached(btn, "earned", mcol.darkened(0.25), Color(0.12, 0.15, 0.11, 0.96), mcol.lightened(0.15), 10, 3)
 		else:
-			_style_button(btn, Color(0.22, 0.24, 0.22), Color(0.08, 0.09, 0.08, 0.90), 10, 3)
-			btn.add_theme_color_override("font_color", COL_MUTED)
+			_style_button_cached(btn, "lock", Color(0.22, 0.24, 0.22), Color(0.08, 0.09, 0.08, 0.90), COL_MUTED, 10, 3)
 
 func _refresh_medal_detail() -> void:
 	var def := MedalData.get_medal_by_id(_selected_medal_id)
@@ -1235,13 +1461,13 @@ func _build_about_overlay() -> void:
 	_about_manual_btn.pressed.connect(func(): _set_about_tab(1))
 	hdr.add_child(_about_manual_btn)
 
-	var close_btn := Button.new()
-	close_btn.text = "CLOSE  [ESC]"
-	close_btn.custom_minimum_size = Vector2(108, 28)
-	close_btn.add_theme_font_size_override("font_size", 11)
-	_style_button(close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 2)
-	close_btn.pressed.connect(func(): hide_about_overlay())
-	hdr.add_child(close_btn)
+	_about_close_btn = Button.new()
+	_about_close_btn.text = "CLOSE  [ESC]"
+	_about_close_btn.custom_minimum_size = Vector2(108, 28)
+	_about_close_btn.add_theme_font_size_override("font_size", 11)
+	_style_button(_about_close_btn, COL_AMBER, Color(0.16, 0.14, 0.09, 0.96), 8, 2)
+	_about_close_btn.pressed.connect(func(): hide_about_overlay())
+	hdr.add_child(_about_close_btn)
 
 	var sub_bar := PanelContainer.new()
 	sub_bar.add_theme_stylebox_override("panel", _make_box(Color(0.09, 0.12, 0.09, 0.95), COL_BORDER, 4, 1, 12, 6))
@@ -1414,8 +1640,10 @@ func _build_menu_overlay() -> void:
 	_menu_title.text = GAME_TITLE
 	_menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_menu_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_menu_title.mouse_filter = Control.MOUSE_FILTER_STOP
 	_menu_title.add_theme_font_size_override("font_size", 16)
 	_menu_title.add_theme_color_override("font_color", COL_AMBER)
+	_menu_title.gui_input.connect(_on_menu_title_gui_input)
 	vbox.add_child(_menu_title)
 
 	_menu_sub = Label.new()
@@ -1547,12 +1775,12 @@ func _build_menu_overlay() -> void:
 		diff_row.add_child(b)
 		_diff_btns[d] = b
 
-	var controls := Label.new()
-	controls.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB] Cancel  •  [ESC] Cancel / Pause Menu\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Tactical Freeze"
-	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	controls.add_theme_font_size_override("font_size", 11)
-	controls.add_theme_color_override("font_color", COL_MUTED)
-	vbox.add_child(controls)
+	_menu_controls_lbl = Label.new()
+	_menu_controls_lbl.text = "CONTROLS:  [1-7] Select Turret  •  [LMB] Build / Inspect  •  [RMB] Cancel  •  [ESC] Cancel / Pause Menu\n[Q] Hellfire Air Strike  •  [F/H] Drone Assign & Hold  •  [N] Next Wave  •  [WASD / RMB Drag / Wheel] Pan & Zoom  •  [SPACE] Tactical Freeze"
+	_menu_controls_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_menu_controls_lbl.add_theme_font_size_override("font_size", 11)
+	_menu_controls_lbl.add_theme_color_override("font_color", COL_MUTED)
+	vbox.add_child(_menu_controls_lbl)
 
 	var deploy_btn := Button.new()
 	deploy_btn.text = "DEPLOY DEFENSES"
@@ -1729,13 +1957,13 @@ func _select_sector(map_id: String, emit_signal: bool) -> void:
 				accent = Color(0.32, 0.88, 1.0)
 			elif bname == "alien":
 				accent = Color(0.88, 0.32, 1.0)
-			_style_button(btn, accent, Color(0.18, 0.21, 0.16, 0.98))
+			_style_button_cached(btn, "sel:" + bname, accent, Color(0.18, 0.21, 0.16, 0.98))
 		elif is_cleared:
 			var medal := RankData.get_medal_info(int(rec.get("best_rank_num", 1)))
 			var mcol: Color = medal["color"]
-			_style_button(btn, mcol.darkened(0.22), Color(0.11, 0.15, 0.12, 0.95))
+			_style_button_cached(btn, "clr:" + String(medal["id"]), mcol.darkened(0.22), Color(0.11, 0.15, 0.12, 0.95))
 		else:
-			_style_button(btn, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
+			_style_button_cached(btn, "idle", Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
 
 	if emit_signal:
 		sector_selected.emit(map_id)
@@ -1753,9 +1981,9 @@ func _select_difficulty(d: WaveData.Difficulty) -> void:
 		var cfg := WaveData.get_difficulty_config(key)
 		var btn: Button = _diff_btns[key]
 		if key == d:
-			_style_button(btn, cfg["accent"], Color(0.18, 0.22, 0.17, 0.98))
+			_style_button_cached(btn, "sel", cfg["accent"], Color(0.18, 0.22, 0.17, 0.98))
 		else:
-			_style_button(btn, Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
+			_style_button_cached(btn, "off", Color(0.25, 0.28, 0.25), Color(0.09, 0.11, 0.10, 0.92))
 
 func _build_end_overlay() -> void:
 	_end_overlay = ColorRect.new()
@@ -1871,6 +2099,25 @@ func _build_end_overlay() -> void:
 	)
 	btn_row.add_child(_end_secret_btn)
 
+func _on_menu_title_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_title_tap_count += 1
+		_title_tap_timer = 2.5
+		if _title_tap_count == 3:
+			_menu_title.add_theme_color_override("font_color", Color(0.56, 0.92, 1.0))
+		elif _title_tap_count == 4:
+			_menu_title.add_theme_color_override("font_color", Color(1.0, 0.36, 0.32))
+		var count_now := _title_tap_count
+		if _title_tap_count >= 5:
+			_reset_title_easter_egg()
+		title_easter_egg_tapped.emit(count_now)
+
+func _reset_title_easter_egg() -> void:
+	_title_tap_count = 0
+	_title_tap_timer = 0.0
+	if _menu_title != null:
+		_menu_title.add_theme_color_override("font_color", COL_AMBER)
+
 func show_menu() -> void:
 	_menu_overlay.visible = true
 	_end_overlay.visible = false
@@ -1879,6 +2126,9 @@ func show_menu() -> void:
 	_about_overlay.visible = false
 	_inspector_panel.visible = false
 	_wave_preview_panel.visible = false
+	if _bottom_dock != null:
+		_bottom_dock.visible = true
+	_reset_title_easter_egg()
 	_reset_save_confirm_btn()
 
 func hide_menu() -> void:
@@ -2089,7 +2339,7 @@ func update_top_bar(sector_name: String, cash: int, lives: int, max_lives: int, 
 			Color(0.12, 0.22, 0.14, 0.96) if active else Color(0.10, 0.12, 0.11, 0.95)
 		)
 
-func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrike_max_cd: float, airstrike_aiming: bool, can_call_next: bool, next_wave_num: int, early_bonus: int, all_launched: bool) -> void:
+func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrike_max_cd: float, airstrike_aiming: bool, can_call_next: bool, next_wave_num: int, early_bonus: int, all_launched: bool, airstrike_preview_active: bool = false) -> void:
 	for t_type in _turret_btns.keys():
 		var btn: Button = _turret_btns[t_type]
 		var cfg := TurretData.get_config(t_type)
@@ -2103,11 +2353,20 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 		else:
 			_style_button_cached(btn, "poor", Color(0.28, 0.24, 0.22), Color(0.09, 0.09, 0.09, 0.85), Color(0.55, 0.45, 0.42), 4, 3)
 
+	var q_pfx := "" if _is_touch_mode else "[Q] "
+	var n_pfx := "" if _is_touch_mode else "[N] "
+
 	if airstrike_cd <= 0.0:
 		_airstrike_btn.disabled = false
 		_airstrike_bar.visible = false
 		_airstrike_bar.value = 100.0
-		_airstrike_btn.text = "[Q] AIMING...\nCLICK MAP" if airstrike_aiming else "[Q] AIR STRIKE\nREADY"
+		if airstrike_aiming:
+			if _is_touch_mode:
+				_airstrike_btn.text = "AIMING...\nTAP RETICLE" if airstrike_preview_active else "AIMING...\nTAP MAP"
+			else:
+				_airstrike_btn.text = "[Q] AIMING...\nCLICK MAP"
+		else:
+			_airstrike_btn.text = "%sAIR STRIKE\nREADY" % q_pfx
 		_style_button_cached(
 			_airstrike_btn,
 			"aim" if airstrike_aiming else "ready",
@@ -2122,7 +2381,7 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 		var pct := clampf((1.0 - airstrike_cd / maxf(1.0, airstrike_max_cd)) * 100.0, 0.0, 100.0)
 		_airstrike_bar.visible = true
 		_airstrike_bar.value = pct
-		_airstrike_btn.text = "[Q] AIR STRIKE\nCD %ds" % int(ceil(airstrike_cd))
+		_airstrike_btn.text = "%sAIR STRIKE\nCD %ds" % [q_pfx, int(ceil(airstrike_cd))]
 		_style_button_cached(_airstrike_btn, "cd", COL_RED, Color(0.18, 0.09, 0.08, 0.90), COL_TEXT, 5, 4)
 
 	if all_launched:
@@ -2131,18 +2390,28 @@ func update_dock(cash: int, placing_type: Variant, airstrike_cd: float, airstrik
 	elif can_call_next:
 		_next_wave_btn.disabled = false
 		if early_bonus > 0:
-			_next_wave_btn.text = "[N] WAVE %d\nEARLY +$%d" % [next_wave_num, early_bonus]
+			_next_wave_btn.text = "%sWAVE %d\nEARLY +$%d" % [n_pfx, next_wave_num, early_bonus]
 		else:
-			_next_wave_btn.text = "[N] LAUNCH\nWAVE %d" % next_wave_num
+			_next_wave_btn.text = "%sLAUNCH\nWAVE %d" % [n_pfx, next_wave_num]
 	else:
 		_next_wave_btn.disabled = true
 		_next_wave_btn.text = "WAVE %d\nINBOUND" % (next_wave_num - 1)
 
 func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = false) -> void:
 	if turret == null or not is_instance_valid(turret):
-		_inspector_panel.visible = false
+		if _inspector_panel.visible:
+			_inspector_panel.visible = false
+			_insp_layout_key = ""
+			if _bottom_dock != null:
+				_bottom_dock.visible = true
+			_update_wave_preview_offset(false)
 		return
 	_inspector_panel.visible = true
+	if _is_touch_mode and _bottom_dock != null:
+		_bottom_dock.visible = false
+	elif _bottom_dock != null:
+		_bottom_dock.visible = true
+
 	var cfg := turret.config
 	var st := turret.get_stats()
 	var vet := turret.get_veteran_title()
@@ -2193,9 +2462,34 @@ func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = fal
 
 	var is_drone := (turret.turret_type == TurretData.TurretType.DRONE)
 	_insp_drone_row.visible = is_drone
-	_inspector_panel.offset_top = -120 if is_drone else -92
+	var safe_w: float = maxf(360.0, get_viewport().get_visible_rect().size.x - _safe_pad_l - _safe_pad_r)
+	var layout_key: String = "%d:%d:%d" % [1 if _is_touch_mode else 0, 1 if is_drone else 0, int(round(safe_w))]
+	if layout_key != _insp_layout_key:
+		_insp_layout_key = layout_key
+		if _is_touch_mode:
+			_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+			_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+			_inspector_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+			var bar_w: float = minf(safe_w - 20.0, 740.0)
+			var side_m: float = (safe_w - bar_w) * 0.5
+			_inspector_panel.offset_left = side_m
+			_inspector_panel.offset_right = -side_m
+			_inspector_panel.offset_bottom = -10.0
+			_inspector_panel.offset_top = -144.0 if is_drone else -102.0
+		else:
+			_inspector_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+			_inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+			_inspector_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+			_inspector_panel.offset_left = -336.0
+			_inspector_panel.offset_right = -10.0
+			_inspector_panel.offset_bottom = -10.0
+			_inspector_panel.offset_top = -120.0 if is_drone else -92.0
+		_update_wave_preview_offset(is_drone)
+
 	if is_drone:
-		_insp_drone_hold_btn.text = "[H] MODE: HOLD" if turret.drone_hold_mode else "[H] MODE: AUTO"
+		var h_pfx := "" if _is_touch_mode else "[H] "
+		var f_pfx := "" if _is_touch_mode else "[F] "
+		_insp_drone_hold_btn.text = ("%sMODE: HOLD" % h_pfx) if turret.drone_hold_mode else ("%sMODE: AUTO" % h_pfx)
 		_style_button_cached(
 			_insp_drone_hold_btn,
 			"hold" if turret.drone_hold_mode else "auto",
@@ -2208,10 +2502,10 @@ func update_inspector(turret: Turret, cash: int, drone_assign_aiming: bool = fal
 		var can_launch := turret.can_launch_drone()
 		_insp_drone_assign_btn.disabled = not can_launch
 		if drone_assign_aiming and can_launch:
-			_insp_drone_assign_btn.text = "CLICK HOSTILE..."
+			_insp_drone_assign_btn.text = "TAP HOSTILE..." if _is_touch_mode else "CLICK HOSTILE..."
 			_style_button_cached(_insp_drone_assign_btn, "assign_aim", Color.WHITE, Color(0.18, 0.34, 0.14, 0.98), COL_TEXT, 8, 3)
 		elif can_launch:
-			_insp_drone_assign_btn.text = "[F] ASSIGN TARGET"
+			_insp_drone_assign_btn.text = "%sASSIGN TARGET" % f_pfx
 			_style_button_cached(_insp_drone_assign_btn, "assign_ready", Color(0.56, 0.90, 0.30), Color(0.12, 0.22, 0.12, 0.95), COL_TEXT, 8, 3)
 		else:
 			_insp_drone_assign_btn.text = turret.get_drone_status_label()
